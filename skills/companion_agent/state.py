@@ -15,6 +15,10 @@ State shape (all timestamps ISO-8601 UTC):
         "last_proactive_at": "2026-08-07T10:15:00+00:00",
         "last_proactive_text": "刚刚突然想到你……",
         "recent_proactive_messages": [{"text": "刚刚突然想到你……", "status": "delivered"}],
+        "recent_followup_messages": [],
+        "last_followup_output_mtime": 0.0,
+        "followup_count": -1,
+        "last_followup_count": 2,
         "recent_history": [{"role": "user", "text": "今天有点累"}],
         "conversation_summary": "",
         "memory_text": "",
@@ -54,8 +58,12 @@ DEFAULT_STATE: dict = {
     "busy": False,
     "last_user_at": "",
     "last_proactive_at": "",
-    "last_proactive_text": "",
-    "recent_proactive_messages": [],
+        "last_proactive_text": "",
+        "recent_proactive_messages": [],
+        "recent_followup_messages": [],
+        "last_followup_output_mtime": 0.0,
+        "followup_count": -1,
+        "last_followup_count": 0,
     "recent_history": [],
     "conversation_summary": "",
     "memory_text": "",
@@ -176,6 +184,15 @@ def _normalize_state(state: dict) -> dict:
                 {"text": item_text, "status": "delivered"}
             )
     normalized["recent_proactive_messages"] = cleaned_recent
+
+    recent_followups = normalized.get("recent_followup_messages")
+    if not isinstance(recent_followups, list):
+        recent_followups = []
+    normalized["recent_followup_messages"] = [
+        {"text": clean, "status": "delivered"}
+        for item in recent_followups[-5:]
+        if (clean := normalize_proactive_text(item.get("text") if isinstance(item, dict) else item))
+    ]
 
     if raw_text and not clean_text:
         normalized["last_proactive_text"] = ""

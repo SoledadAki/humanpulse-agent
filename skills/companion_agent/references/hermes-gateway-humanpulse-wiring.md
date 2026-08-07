@@ -27,7 +27,7 @@ update` (pip reinstall wipes site-packages edits) and ported to other hosts.
              empty stdout  → cron skips AI call (zero tokens)
              context prompt → cron agent crafts a natural opening line
 
- cron humanpulse-followup (5m, no_agent)
+ cron humanpulse-followup (5m, agent mode)
    └─ script humanpulse_followup.py
         ├─ detect proactive job's newest output → record_proactive_sent()
         └─ followup_tick()
@@ -97,17 +97,19 @@ hermes cron add --name humanpulse-proactive --schedule "every 45m" \
   "你是一个带 HumanPulse 时间感/主动聊天能力的陪伴角色（琴音）。…"
 
 hermes cron add --name humanpulse-followup --schedule "every 5m" \
-  --script humanpulse_followup.py --no-agent --deliver origin \
-  "HumanPulse 追问状态机 tick：…"
+  --script humanpulse_followup.py --skill companion-agent --deliver origin \
+  "根据 HumanPulse 追问上下文生成一条自然的后续消息；遵循当前人设，不默认撒娇，不提内部机制，没有自然内容时输出 [SILENT]。"
 ```
 
 - Proactive job uses `script` (data collection) + agent mode: when the script
   prints nothing, Hermes cron skips the AI call entirely (zero tokens). When
   it prints the eligibility status, the agent crafts the message.
-- Follow-up job uses `no_agent` mode: stdout is delivered verbatim, empty
-  stdout means silence. It also scans the proactive job's output dir
-  (`~/.hermes/cron/output/<job_id>/`) and records the newest delivered
-  proactive message so the follow-up cycle starts from real content.
+- Follow-up job uses agent mode: empty script stdout skips the model call;
+  non-empty stdout is a hidden generation context. It scans both job output
+  directories, extracts only the final standalone `## Response` section, and
+  records delivered text for the next stage. Both HumanPulse jobs use
+  `attach_to_session=true` so delivered messages are mirrored into the real
+  QQ/WeChat session.
 
 ## Re-apply after `hermes update`
 

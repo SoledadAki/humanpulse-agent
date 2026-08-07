@@ -18,6 +18,7 @@ from skills.companion_agent import (
     stop_followup,
     build_proactive_prompt,
     choose_proactive_angle,
+    choose_followup_count,
 )
 from skills.companion_agent.adapters.hermes.send_bubbles import send_human_reply
 from skills.companion_agent.adapters.hermes.gateway_bubble_bridge import send_with_bubbles
@@ -31,10 +32,12 @@ from skills.companion_agent.adapters.hermes.patch_gateway import (
     _apply_base_patch,
     _apply_run_patch,
     _copy_bridge,
+    _enable_cron_session_mirroring,
 )
 from skills.companion_agent.gateway.platforms import humanpulse_bridge
 from skills.companion_agent import runtime as humanpulse_runtime
 from skills.companion_agent import state as humanpulse_state
+from skills.companion_agent.adapters.hermes.cron.humanpulse_followup import _extract_response
 
 
 NOW = datetime(2026, 8, 6, 15, 0, tzinfo=timezone.utc)
@@ -106,6 +109,26 @@ class CompanionSkillTests(unittest.TestCase):
             seed="test",
         )
         self.assertIn("疑问", angle)
+
+    def test_followup_count_and_delay_are_variable_but_bounded(self):
+        self.assertEqual(choose_followup_count({"followup_count": 0}), 0)
+        self.assertEqual(choose_followup_count({"followup_count": 3}), 3)
+        state = {"proactive_level": "normal", "last_proactive_text": "你醒了吗？"}
+        counts = {choose_followup_count(state, seed=f"seed-{i}") for i in range(12)}
+        self.assertTrue(counts <= {1, 2, 3})
+        policy = FollowupPolicy(intervals_minutes=((26, 36), (8, 13), (4, 7)))
+        delays = []
+        for index in range(6):
+            cycle = start_followup_cycle(
+                ["主动消息", "追问"],
+                started_at=NOW,
+                cycle_id=f"jitter-{index}",
+                policy=policy,
+            )
+            due = datetime.fromisoformat(cycle["next_stage_at"])
+            delays.append(round((due - NOW).total_seconds() / 60))
+        self.assertTrue(all(26 <= delay <= 36 for delay in delays))
+        self.assertGreater(len(set(delays)), 1)
 
     def test_proactive_response_normalizes_json_and_legacy_message(self):
         result = normalize_proactive_response(
@@ -263,6 +286,32 @@ class CompanionSkillTests(unittest.TestCase):
             self.assertIn(BASE_PATCH_MARKER, patched)
             self.assertIn(BASE_SEND_ANCHOR_NEW, patched)
 
+    def test_cron_response_extract_uses_standalone_last_header(self):
+        report = 'The skill says "## Response" inline.\n## Response\n真实追问内容'
+        self.assertEqual(_extract_response(report), "真实追问内容")
+
+    def test_cron_patch_mirrors_only_humanpulse_jobs(self):
+        with TemporaryDirectory() as directory:
+            jobs_path = Path(directory) / "jobs.json"
+            jobs_path.write_text(
+                json.dumps(
+                    {
+                        "jobs": [
+                            {"name": "humanpulse-proactive", "attach_to_session": False},
+                            {"name": "humanpulse-followup", "attach_to_session": False},
+                            {"name": "anime-daily", "attach_to_session": False},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            _enable_cron_session_mirroring(jobs_path, dry_run=False)
+            jobs = json.loads(jobs_path.read_text(encoding="utf-8"))["jobs"]
+            self.assertEqual(jobs[0]["attach_to_session"], True)
+            self.assertEqual(jobs[1]["attach_to_session"], True)
+            self.assertEqual(jobs[2]["attach_to_session"], False)
+            self.assertTrue(jobs_path.with_suffix(".json.humanpulse.bak").exists())
+
     def test_record_proactive_sent_keeps_sent_text_as_followup_stage_zero(self):
         with TemporaryDirectory() as directory:
             old_path = humanpulse_state.DEFAULT_STATE_FILE
@@ -271,10 +320,13 @@ class CompanionSkillTests(unittest.TestCase):
             humanpulse_bridge._state_mod = humanpulse_state
             try:
                 humanpulse_state.reset_state()
+                state = humanpulse_state.load_state()
+                state["followup_count"] = 1
+                humanpulse_state.save_state(state)
                 humanpulse_bridge.record_proactive_sent("刚刚突然想到你")
                 state = humanpulse_state.load_state()
                 self.assertEqual(state["followup"]["stages"][0], "刚刚突然想到你")
-                self.assertEqual(len(state["followup"]["stages"]), 4)
+                self.assertEqual(len(state["followup"]["stages"]), 2)
             finally:
                 humanpulse_state.DEFAULT_STATE_FILE = old_path
 
@@ -361,6 +413,9 @@ class CompanionSkillTests(unittest.TestCase):
             humanpulse_bridge._state_mod = humanpulse_state
             try:
                 humanpulse_state.reset_state()
+                state = humanpulse_state.load_state()
+                state["followup_count"] = 1
+                humanpulse_state.save_state(state)
                 humanpulse_bridge.record_proactive_sent("主动消息")
                 state = humanpulse_state.load_state()
                 state["followup"]["next_stage_at"] = (
@@ -371,6 +426,31 @@ class CompanionSkillTests(unittest.TestCase):
                 followup = humanpulse_state.load_state()["followup"]
                 self.assertNotIn("state", followup)
                 self.assertEqual(followup["stage_index"], 1)
+            finally:
+                humanpulse_state.DEFAULT_STATE_FILE = old_path
+
+    def test_agent_followup_prompt_is_persona_neutral_and_contextual(self):
+        with TemporaryDirectory() as directory:
+            old_path = humanpulse_state.DEFAULT_STATE_FILE
+            humanpulse_state.DEFAULT_STATE_FILE = Path(directory) / "state.json"
+            humanpulse_bridge._runtime = humanpulse_runtime
+            humanpulse_bridge._state_mod = humanpulse_state
+            try:
+                humanpulse_state.reset_state()
+                state = humanpulse_state.load_state()
+                state["followup_count"] = 1
+                state["recent_history"] = [{"role": "user", "text": "我刚醒"}]
+                humanpulse_state.save_state(state)
+                humanpulse_bridge.record_proactive_sent("早上好，今天也要顺利呀")
+                state = humanpulse_state.load_state()
+                state["followup"]["next_stage_at"] = (
+                    datetime.now(timezone.utc) - timedelta(minutes=1)
+                ).isoformat()
+                humanpulse_state.save_state(state)
+                prompt = humanpulse_bridge.followup_prompt_for_agent()
+                self.assertIn("早上好，今天也要顺利呀", prompt)
+                self.assertIn("当前角色的人格", prompt)
+                self.assertIn("不要默认使用撒娇", prompt)
             finally:
                 humanpulse_state.DEFAULT_STATE_FILE = old_path
 

@@ -26,10 +26,10 @@ Host contract (Hermes gateway + Hermes cron):
 * ``record_proactive_sent(text)`` — called by the cron agent (or the
   follow-up script) after a proactive message has actually been delivered;
   updates ``last_proactive_at`` / count and seeds the follow-up cycle.
-* ``followup_tick()`` — used by the no-agent follow-up cron script.  Polls
-  the follow-up state machine; when a stage is claimed it commits it and
-  returns the text to deliver (stdout of the script), otherwise returns
-  ``None`` so the cron job stays silent.
+* ``followup_tick()`` — portable no-agent fallback: poll and return a due
+  stage text, otherwise ``None``.
+* ``followup_prompt_for_agent()`` — Hermes agent-mode adapter: poll a due
+  stage and return a persona-aware generation prompt.
 """
 
 from __future__ import annotations
@@ -138,6 +138,10 @@ def _default_state() -> dict:
         "last_proactive_at": "",
         "last_proactive_text": "",
         "recent_proactive_messages": [],
+        "recent_followup_messages": [],
+        "last_followup_output_mtime": 0.0,
+        "followup_count": -1,
+        "last_followup_count": 0,
         "recent_history": [],
         "conversation_summary": "",
         "memory_text": "",
@@ -392,26 +396,34 @@ def record_proactive_sent(text: str) -> None:
         starter = getattr(_runtime, "start_followup_cycle", None)
         if starter is not None:
             # Follow-up cadence is tuned for the 5-minute cron tick:
-            #   stage1: ~30-40 min after the ping
-            #   stage2: ~12-20 min later
-            #   stage3: ~6-10 min later (last soft nudge)
+            #   stage1: ~26-36 min after the ping
+            #   stage2: ~8-13 min later
+            #   stage3: ~4-7 min later (last soft nudge)
             # grace is 8 min so a tick that lands just after due still
             # claims the stage instead of dropping it.
             _FP = getattr(_runtime, "FollowupPolicy", None)
+            count_selector = getattr(_runtime, "choose_followup_count", None)
+            followup_count = (
+                int(count_selector(state, now=now, seed=state["last_proactive_at"]))
+                if count_selector is not None
+                else 3
+            )
+            followup_count = max(0, min(3, followup_count))
             policy = _FP(
                 enabled=True,
-                max_stages=4,
+                max_stages=1 + followup_count,
                 grace_minutes=8,
                 stale_claim_minutes=10,
-                intervals_minutes=((30, 40), (12, 20), (6, 10)),
+                intervals_minutes=((26, 36), (8, 13), (4, 7)),
             )
+            state["last_followup_count"] = followup_count
             followup = starter(
                 [
                     {"bubbles": [state["last_proactive_text"]]},
                     {"bubbles": ["刚说到一半……其实我还有句话想跟你说"]},
                     {"bubbles": ["那个……你是不是在忙呀？"]},
                     {"bubbles": ["好啦不打扰你了，等你忙完记得回来找我"]},
-                ],
+                ][: 1 + followup_count],
                 started_at=now,
                 cycle_id=f"proactive-{int(now.timestamp())}",
                 policy=policy,
@@ -425,8 +437,8 @@ def record_proactive_sent(text: str) -> None:
 def followup_tick() -> str | None:
     """Poll follow-up state; return the stage text to deliver or None.
 
-    Used by the no-agent follow-up cron script: stdout is delivered
-    verbatim, empty stdout means silence.
+    Portable fallback for hosts without agent-mode cron generation: return a
+    due stage verbatim, or ``None`` for silence.
     """
     if not _load_modules():
         return None
@@ -450,6 +462,67 @@ def followup_tick() -> str | None:
         return text
     except Exception as exc:  # pragma: no cover - defensive
         logger.debug("humanpulse followup_tick failed: %s", exc)
+        return None
+
+
+def record_followup_generated(text: str, mtime: float | None = None) -> None:
+    """Remember a follow-up that the host's agent actually delivered."""
+    if not _load_modules():
+        return
+    try:
+        clean_text = _normalize_proactive_text(text)
+        if not clean_text:
+            return
+        state = _load_state()
+        recent = state.get("recent_followup_messages")
+        if not isinstance(recent, list):
+            recent = []
+        recent.append({"text": clean_text, "status": "delivered"})
+        state["recent_followup_messages"] = recent[-5:]
+        if mtime is not None:
+            state["last_followup_output_mtime"] = float(mtime)
+        _save_state(state)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("humanpulse record_followup_generated failed: %s", exc)
+
+
+def followup_prompt_for_agent() -> str | None:
+    """Claim one due stage and return a persona-aware generation prompt."""
+    if not _load_modules():
+        return None
+    try:
+        poll = getattr(_runtime, "poll_followup", None)
+        commit = getattr(_runtime, "commit_followup", None)
+        if poll is None or commit is None:
+            return None
+        state = _load_state()
+        result = poll(state.get("followup", {}))
+        if result.get("status") != "claimed":
+            return None
+        plan = result["state"].get("stages") or []
+        original = _normalize_proactive_text(plan[0] if plan else "")
+        fallback = _normalize_proactive_text(result.get("text"))
+        if not original or not fallback:
+            return None
+        committed = commit(result["state"], result["claim_id"], delivered=True)
+        state["followup"] = committed.get("state", result["state"])
+        _save_state(state)
+        stage = int(result.get("stage", 1))
+        total = max(1, len(plan) - 1)
+        return (
+            "HumanPulse 无回复追问生成上下文（仅供生成，不要向用户解释）\n"
+            f"原主动消息：{original}\n"
+            f"已经发送的追问：{json.dumps((state.get('recent_followup_messages') or [])[-4:], ensure_ascii=False)}\n"
+            f"近期聊天：{json.dumps((state.get('recent_history') or [])[-8:], ensure_ascii=False)}\n"
+            f"当前是第 {stage}/{total} 次追问；安全递进方向参考：{fallback}\n\n"
+            "请严格遵循当前角色的人格、关系距离和表达习惯，生成一条自然的后续消息。"
+            "不要默认使用撒娇；可以是关心、轻松玩笑、继续前文、简短提醒、表达想念，"
+            "或者自然收尾，具体取决于角色和上下文。不要重复原主动消息或已经发送的追问，"
+            "不要提定时器、脚本、技能、模型或沉默时长，不要施压、威胁、制造负罪感，"
+            "不要使用自伤或死亡威胁。只输出用户可见的 1-3 句短消息；没有自然内容时输出 [SILENT]。"
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("humanpulse followup_prompt_for_agent failed: %s", exc)
         return None
 
 

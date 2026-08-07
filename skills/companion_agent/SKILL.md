@@ -99,10 +99,17 @@ when it returns `claimed`, send that stage and call `commit_followup()` with the
 delivery result. Call `stop_followup()` immediately for any new user message,
 manual pause, quiet-hours transition, or conversation lock.
 
-The default follow-up windows are intentionally human-paced: 35–50 minutes,
-then 15–25 minutes, then 3–8 minutes, then 1–3 minutes. A stage missed beyond
-the five-minute grace period is discarded and never caught up. The host must
-persist state atomically so two scheduler ticks cannot send the same stage.
+The host should choose a bounded 0–3 follow-up count from the persona,
+time-of-day, and whether the proactive message leaves an open topic. For a
+three-stage cycle, use human-paced jittered windows around 26–36 minutes,
+then 8–13 minutes, then 4–7 minutes. A stage missed beyond the grace period is
+discarded and never caught up. The host must persist state atomically so two
+scheduler ticks cannot send the same stage.
+
+When the host has an agent-mode scheduler, claim a due stage and ask the model
+to generate it from the original proactive message, delivered follow-ups,
+recent conversation, and the active persona. Keep the fixed stage text only as
+a safe direction or fallback; do not expose it as a universal script.
 
 ## Proactive behavior
 

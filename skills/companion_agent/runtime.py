@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 DEFAULT_TIMEZONE = "Asia/Shanghai"
 DEFAULT_MAX_BUBBLES = 5
 DEFAULT_MAX_BUBBLE_CHARS = 180
-DEFAULT_MAX_STAGES = 3
+DEFAULT_MAX_STAGES = 4
 DEFAULT_MAX_CONTEXT_MESSAGES = 12
 DEFAULT_MAX_CONTEXT_CHARS = 320
 
@@ -44,10 +44,10 @@ class FollowupPolicy:
     grace_minutes: int = 5
     stale_claim_minutes: int = 10
     intervals_minutes: tuple[tuple[int, int], ...] = (
-        (35, 50),
-        (15, 25),
-        (3, 8),
-        (1, 3),
+        (26, 36),
+        (8, 13),
+        (4, 7),
+        (2, 4),
     )
 
 
@@ -129,7 +129,7 @@ def _stable_unit(seed: str) -> float:
 
 
 def _followup_delay_minutes(stage: int, seed: str, policy: FollowupPolicy) -> int:
-    ranges = policy.intervals_minutes or ((35, 50),)
+    ranges = policy.intervals_minutes or ((26, 36),)
     low, high = ranges[min(max(stage - 1, 0), len(ranges) - 1)]
     return round(low + (high - low) * _stable_unit(seed))
 
@@ -498,6 +498,50 @@ def choose_proactive_angle(
         digest_size=2,
     ).digest()
     return options[int.from_bytes(digest, "big") % len(options)]
+
+
+def choose_followup_count(
+    state: dict,
+    *,
+    now: datetime | None = None,
+    seed: str = "",
+) -> int:
+    """Choose 0-3 follow-ups from persona, timing, and conversational openness."""
+
+    override = state.get("followup_count")
+    if isinstance(override, int) and 0 <= override <= 3:
+        return override
+    level = str(state.get("proactive_level") or "normal").lower()
+    ranges = {
+        "restrained": (0, 1),
+        "normal": (0, 3),
+        "clingy": (1, 3),
+        "custom": (0, 3),
+    }
+    low, high = ranges.get(level, ranges["normal"])
+    zone = _timezone(str(state.get("timezone") or DEFAULT_TIMEZONE))
+    current = _now(now, zone)
+    if _period(current.hour) in {"凌晨", "深夜"}:
+        high = min(high, 1)
+    latest = str(state.get("last_proactive_text") or "")
+    history = state.get("recent_history") or []
+    latest_user = next(
+        (
+            str(item.get("text") or item.get("content") or "")
+            for item in reversed(history)
+            if isinstance(item, dict) and item.get("role") in {"user", "owner"}
+        ),
+        "",
+    )
+    if any(mark in latest + latest_user for mark in "？?吗呢呀吧"):
+        low = min(high, low + 1)
+    if high <= low:
+        return low
+    digest = hashlib.blake2s(
+        f"{seed}|{level}|{current.date().isoformat()}|{latest}|{latest_user}".encode("utf-8"),
+        digest_size=2,
+    ).digest()
+    return low + int.from_bytes(digest, "big") % (high - low + 1)
 
 
 def build_proactive_prompt(

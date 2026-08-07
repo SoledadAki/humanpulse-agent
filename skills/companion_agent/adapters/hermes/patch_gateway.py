@@ -12,6 +12,7 @@ What it installs:
   3. gateway/platforms/humanpulse_bridge.py      (state/runtime loader)
   4. gateway/run.py                              (hidden context injection)
   5. ~/.hermes/scripts/humanpulse_*.py           (cron scripts)
+  6. ~/.hermes/cron/jobs.json                    (HumanPulse session mirroring)
 
 It is idempotent: already-patched files are detected and skipped.
 
@@ -24,6 +25,7 @@ Default site-packages is resolved from the running interpreter.
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -33,6 +35,8 @@ GATEWAY_SOURCES = SKILL_ROOT / "gateway" / "platforms"
 BRIDGE_SOURCE = GATEWAY_SOURCES / "humanpulse_bridge.py"
 BUBBLE_BRIDGE_SOURCE = GATEWAY_SOURCES / "base_bubble_bridge.py"
 CRON_SOURCE_DIR = Path(__file__).resolve().parent / "cron"
+CRON_JOBS = Path.home() / ".hermes" / "cron" / "jobs.json"
+HUMANPULSE_JOB_NAMES = {"humanpulse-proactive", "humanpulse-followup"}
 
 # Marker comments used to detect whether a patch is already applied.
 RUN_PATCH_MARKER = "# HumanPulse (companion-agent): hidden time context + proactive"
@@ -281,6 +285,50 @@ def _install_cron_scripts(dry_run: bool) -> None:
             shutil.copy2(source, target)
 
 
+def _enable_cron_session_mirroring(
+    jobs_path: Path = CRON_JOBS,
+    *,
+    dry_run: bool,
+) -> None:
+    """Enable mirroring only for the two HumanPulse jobs."""
+    if not jobs_path.exists():
+        print(f"[warn] cron jobs file not found: {jobs_path}")
+        return
+    try:
+        data = json.loads(jobs_path.read_text(encoding="utf-8"))
+        jobs = data.get("jobs")
+        if not isinstance(jobs, list):
+            print(f"[warn] invalid cron jobs shape: {jobs_path}")
+            return
+    except Exception as exc:
+        print(f"[warn] cannot read cron jobs: {exc}")
+        return
+    changed = []
+    found = set()
+    for job in jobs:
+        if not isinstance(job, dict) or job.get("name") not in HUMANPULSE_JOB_NAMES:
+            continue
+        found.add(job["name"])
+        if job.get("attach_to_session") is not True:
+            job["attach_to_session"] = True
+            changed.append(job["name"])
+    missing = HUMANPULSE_JOB_NAMES - found
+    if missing:
+        print(f"[warn] HumanPulse cron jobs not found: {', '.join(sorted(missing))}")
+    if not changed:
+        print(f"[skip] HumanPulse cron session mirroring already enabled ({jobs_path})")
+        return
+    print(f"[{'dry-run' if dry_run else 'patch'}] attach_to_session=True for: {', '.join(sorted(changed))}")
+    if dry_run:
+        return
+    backup = jobs_path.with_suffix(jobs_path.suffix + ".humanpulse.bak")
+    shutil.copy2(jobs_path, backup)
+    temp = jobs_path.with_suffix(jobs_path.suffix + ".humanpulse.tmp")
+    temp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temp.replace(jobs_path)
+    print(f"       backup: {backup}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--site-packages", default=None, help="Hermes site-packages dir")
@@ -302,6 +350,7 @@ def main() -> int:
     )
     _apply_run_patch(site, args.dry_run)
     _install_cron_scripts(args.dry_run)
+    _enable_cron_session_mirroring(dry_run=args.dry_run)
     print("done.")
     return 0
 

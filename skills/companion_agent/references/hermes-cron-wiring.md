@@ -9,7 +9,7 @@ cycles. Both were created 2026-08-07 on this machine and verified working.
   (bridge loads `runtime.py` + `state.py` from it at runtime).
 - Scripts copied to `~/.hermes/scripts/`:
   - `humanpulse_proactive.py` — data-collection script (agent-mode job)
-  - `humanpulse_followup.py` — watchdog script (no_agent job)
+  - `humanpulse_followup.py` — context gate for an agent-mode job
 - State file: `~/.hermes/humanpulse/state.json` (override
   `HUMANPULSE_STATE_FILE`).
 
@@ -36,18 +36,25 @@ HumanPulse 等机制词汇，也不要说\"我刚刚检测到\"之类的话。�
 如果实在没有想说的，回复 [SILENT] 保持安静，不要硬凑。"
 ```
 
-## Job 2: follow-up (no_agent, 10 min)
+## Job 2: follow-up (agent mode, every 5 minutes)
 
-`no_agent=true` means: script stdout is delivered verbatim; empty stdout =
-silent. The script also scans `~/.hermes/cron/output/<proactive-job-id>/` and
-calls `record_proactive_sent()` when it sees a newly delivered proactive
-message, seeding the follow-up state machine.
+The script only gates the model call. Empty stdout means silence and zero
+tokens. When a stage is due, the script emits a hidden generation context;
+the agent creates the visible follow-up from the original proactive message,
+previous follow-ups, current history, and the active persona. The script also
+records the previous delivered output and scans the proactive job output for a
+newly delivered message.
 
 ```bash
 hermes cron add --name humanpulse-followup --schedule "every 5m" \
-  --script humanpulse_followup.py --no-agent --deliver origin \
-  "HumanPulse 追问状态机 tick：检查是否有到期的追问 stage，有则输出该 stage 文本（会原样发送给用户），无则保持静默（空输出）。"
+  --script humanpulse_followup.py --skill companion-agent --deliver origin \
+  "根据上方 HumanPulse 追问上下文生成一条自然的后续消息。遵循当前人设，不默认撒娇；不要提脚本、定时器或沉默时长，不要施压或使用自伤威胁。没有自然内容时输出 [SILENT]。"
 ```
+
+After both jobs exist, run `python3 adapters/hermes/patch_gateway.py`. It sets
+`attach_to_session=true` only on `humanpulse-proactive` and
+`humanpulse-followup`, so their delivered messages are mirrored into the real
+QQ/WeChat session history. Other cron jobs are untouched.
 
 ## Verification
 

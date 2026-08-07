@@ -23,7 +23,8 @@ The idempotent patcher:
    while retaining bounded recent history for later proactive generation
    without persisting hidden context into the transcript.
 5. Copies `humanpulse_proactive.py` and `humanpulse_followup.py` into
-   `~/.hermes/scripts/`.
+   `~/.hermes/scripts/` and enables session mirroring only for the two
+   HumanPulse jobs in `~/.hermes/cron/jobs.json`.
 
 Existing files receive `.humanpulse.bak` backups. Use `--dry-run` to inspect
 changes or `--site-packages PATH` when Hermes is installed in a nonstandard
@@ -95,6 +96,13 @@ The state loader repairs the two known legacy failures on load: nested
 `followup.state` commit envelopes are flattened, and oversized cron reports
 are rejected as proactive messages. A polluted old state therefore becomes
 idle instead of being injected into the next conversation.
+
+Hermes follow-ups use agent mode rather than fixed no-agent text. The gate
+stays silent when no stage is due; when due, it gives the model the original
+proactive message, delivered follow-ups, recent context, stage number, and a
+safe fallback direction. The model writes the actual message in the current
+persona's voice. The default cycle chooses a variable 0–3 follow-up count and
+slightly jittered intervals around 26–36, 8–13, and 4–7 minutes.
 
 Full source-level details are in
 [`../../references/hermes-gateway-humanpulse-wiring.md`](../../references/hermes-gateway-humanpulse-wiring.md).

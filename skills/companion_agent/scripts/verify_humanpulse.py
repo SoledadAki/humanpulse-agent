@@ -129,6 +129,9 @@ def main() -> int:
 
     # -- 4. record -> followup seed -----------------------------------------
     proactive_text = "刚刚突然想到你，今天过得怎么样呀"
+    state = hb._load_state()
+    state["followup_count"] = 3
+    hb._save_state(state)
     hb.record_proactive_sent(proactive_text)
     st = hb._load_state()
     check(
@@ -186,7 +189,7 @@ def main() -> int:
         max_stages=3,
         grace_minutes=8,
         stale_claim_minutes=10,
-        intervals_minutes=((30, 40), (12, 20), (6, 10)),
+        intervals_minutes=((26, 36), (8, 13), (4, 7)),
     )
     base = datetime.datetime.now(datetime.timezone.utc)
     claimed_texts: list[str] = []
