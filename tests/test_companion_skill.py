@@ -1,3 +1,4 @@
+import asyncio
 import json
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -14,6 +15,7 @@ from skills.companion_agent import (
     start_followup_cycle,
     stop_followup,
 )
+from skills.companion_agent.adapters.hermes.send_bubbles import send_human_reply
 
 
 NOW = datetime(2026, 8, 6, 15, 0, tzinfo=timezone.utc)
@@ -108,6 +110,23 @@ class CompanionSkillTests(unittest.TestCase):
         self.assertEqual(stopped["status"], "waiting_for_user")
         self.assertEqual(stopped["stop_reason"], "USER_REPLIED")
         self.assertEqual(stopped["next_stage_at"], "")
+
+    def test_hermes_sender_sends_bubbles_as_independent_calls(self):
+        sent = []
+
+        async def send_one(text):
+            sent.append(text)
+            return "message-id"
+
+        result = asyncio.run(
+            send_human_reply(
+                "第一句。第二句！",
+                send_one,
+                is_cancelled=lambda: False,
+            )
+        )
+        self.assertEqual(result["status"], "sent")
+        self.assertEqual(sent, ["第一句。", "第二句！"])
 
 
 if __name__ == "__main__":
