@@ -77,6 +77,29 @@ For Codex and Claude Code, install the same directory as a development skill:
 .claude/skills/companion-agent/SKILL.md
 ```
 
+### Install with an agent
+
+You can ask an agent with filesystem access to install the skill for you. Copy
+and paste this prompt into Hermes, AstrBot, Codex, Claude Code, or another
+agent that can manage local files:
+
+```text
+Install the HumanPulse companion-agent skill from:
+https://github.com/SoledadAki/humanpulse-agent
+
+First detect which host I am using: Hermes, AstrBot, Codex, or Claude Code.
+Install only the skill directory `skills/companion_agent/` into the host's
+recommended skill location. Preserve the required `SKILL.md` at the skill root.
+Do not modify unrelated projects, credentials, prompts, or configuration.
+If the skill already exists, show the existing path and ask before replacing it.
+After installation, verify that the skill is discoverable and report the exact
+installed path and the restart/new-session action required by this host.
+```
+
+The agent should report the target path before making a destructive replacement.
+For runtime hosts, installation of the skill does not replace the host's
+scheduler or message transport; those remain host-specific.
+
 The runtime exposes small, host-agnostic operations:
 
 ```python
