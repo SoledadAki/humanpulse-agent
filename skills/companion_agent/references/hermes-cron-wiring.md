@@ -16,8 +16,9 @@ cycles. Both were created 2026-08-07 on this machine and verified working.
 ## Job 1: proactive (agent mode, 45 min)
 
 The script's stdout is injected into the agent prompt. Empty stdout → Hermes
-cron skips the AI call entirely (zero tokens). Non-empty → agent reads the
-status and crafts a natural opening line.
+cron skips the AI call entirely (zero tokens). Non-empty → agent receives the
+current period, recent conversation context, recent proactive messages, and a
+selected opening angle, then crafts a natural opening line.
 
 ```bash
 hermes cron add --name humanpulse-proactive --schedule "every 45m" \
@@ -70,7 +71,7 @@ python3 scripts/verify_humanpulse.py   # 19/19 PASS
 }
 ```
 
-Note: `update_user_activity()` is called by the gateway `run_sync` injection
+Note: `update_user_activity(history)` is called by the gateway `run_sync` injection
 on every user turn — it records `last_user_at` AND stops any active follow-up
 cycle (`stop_followup`). Do not call it from the cron scripts; they would
 clobber the user-activity signal.

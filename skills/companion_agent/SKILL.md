@@ -111,6 +111,14 @@ Skip when the user was recently active, the conversation is busy, quiet hours
 are active, the daily limit is reached, or the proactive cooldown has not ended.
 Add jitter in the host scheduler rather than firing at a fixed visible cadence.
 
+When eligible, use `build_proactive_prompt()` or an equivalent host prompt. It
+should combine the current local period, whether this is the first opening of
+the day's window, bounded recent conversation, approved summary or memory, and
+recent proactive messages. Select an opening angle from that material: a
+period-aware greeting, a continuation of an open question, a small observation,
+an in-persona topic, a short creative thought, or a simple expression of
+missing the user. Avoid repeating the last angle, topic, opening, or question.
+
 When eligible, choose one natural reason to speak: a current-time greeting, a
 follow-up to an unfinished topic, a small observation, a shared interest, or a
 simple expression of missing the user. Avoid repeatedly asking whether the user
@@ -128,14 +136,14 @@ The runtime in `runtime.py` is dependency-free and can be copied into a plugin.
 
 Runtime hosts should expose these six operations:
 
-1. `update_user_activity()` records each inbound user turn and cancels pending
-   follow-ups.
+1. `update_user_activity(history=None)` records each inbound user turn,
+   optionally retains bounded recent context, and cancels pending follow-ups.
 2. `build_hidden_time_context(history)` creates temporal context that is sent
    to the model but never persisted as user text.
 3. `build_proactive_reply_note()` marks the next user turn as a likely reply
    to the most recently delivered proactive message.
-4. `proactive_state_for_agent()` returns an eligibility prompt or empty output
-   so the scheduler can skip the model call.
+4. `proactive_state_for_agent()` returns a context-aware eligibility prompt or
+   empty output so the scheduler can skip the model call.
 5. `record_proactive_sent(text)` records only a message that was actually
    delivered and stores it as follow-up stage 0.
 6. `followup_tick()` returns one due follow-up or `None`.

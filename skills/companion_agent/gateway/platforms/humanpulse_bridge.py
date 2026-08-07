@@ -10,16 +10,17 @@ gateway keeps working unchanged.
 
 Host contract (Hermes gateway + Hermes cron):
 
-* ``update_user_activity()`` — call at the start of every real user turn
-  (inside gateway ``run_sync``).  It records ``last_user_at`` and stops any
-  active follow-up cycle because the user replied.
+* ``update_user_activity(history=None)`` — call at the start of every real
+  user turn (inside gateway ``run_sync``). It records ``last_user_at``, keeps
+  a bounded recent history for proactive generation, and stops any active
+  follow-up cycle because the user replied.
 * ``build_hidden_time_context(history)`` — render ``build_time_context()``
   output to append to the ephemeral system prompt.  Never shown to the user.
 * ``build_proactive_reply_note()`` — when the most recent assistant message
   was a proactive ping that the user has not yet answered, return a short
   hidden note so the model can treat the next user message as a reply to it.
 * ``proactive_state_for_agent()`` — used by the proactive cron job's
-  data-collection script: returns a compact status string when a proactive
+  data-collection script: returns a context-aware prompt when a proactive
   message is eligible, or an empty string (which makes Hermes cron skip the
   AI call entirely — zero tokens when nothing should be said).
 * ``record_proactive_sent(text)`` — called by the cron agent (or the
@@ -39,6 +40,7 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +137,14 @@ def _default_state() -> dict:
         "last_user_at": "",
         "last_proactive_at": "",
         "last_proactive_text": "",
+        "recent_proactive_messages": [],
+        "recent_history": [],
+        "conversation_summary": "",
+        "memory_text": "",
+        "persona_context": "",
+        "proactive_level": "normal",
+        "proactive_window_date": "",
+        "timezone": "Asia/Shanghai",
         "proactive_count_today": 0,
         "today_date": "",
         "followup": {
@@ -184,11 +194,33 @@ def _save_state(state: dict) -> None:
         logger.warning("humanpulse bridge: failed to persist state: %s", exc)
 
 
+def _compact_history(history: list | None) -> list[dict]:
+    """Keep enough recent context for proactive generation without growing state forever."""
+    result = []
+    for item in (history or [])[-12:]:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        if role not in {"user", "owner", "assistant"}:
+            continue
+        text = " ".join(str(item.get("content") or item.get("text") or "").split())
+        if not text:
+            continue
+        result.append(
+            {
+                "role": "user" if role in {"user", "owner"} else "assistant",
+                "text": text[:320],
+                "timestamp": str(item.get("timestamp") or ""),
+            }
+        )
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Public host-facing functions
 # ---------------------------------------------------------------------------
 
-def update_user_activity() -> None:
+def update_user_activity(history: list | None = None) -> None:
     """Record that the user just spoke and cancel any pending follow-up."""
     if not _load_modules():
         return
@@ -197,6 +229,9 @@ def update_user_activity() -> None:
         state = _load_state()
         state["last_user_at"] = now
         state["busy"] = False
+        compacted = _compact_history(history)
+        if compacted:
+            state["recent_history"] = compacted
         stop = getattr(_runtime, "stop_followup", None)
         if stop is not None and state.get("followup", {}).get("status") == "active":
             state["followup"] = stop(state["followup"], reason="USER_REPLIED")
@@ -266,12 +301,18 @@ def proactive_state_for_agent() -> str:
         return ""
     try:
         decider = getattr(_runtime, "decide_proactive", None)
+        prompt_builder = getattr(_runtime, "build_proactive_prompt", None)
         if decider is None:
             return ""
         state = _load_state()
         decision = decider(state)
         if decision.get("action") != "consider":
             return ""
+        if prompt_builder is not None:
+            return prompt_builder(
+                state,
+                seed=f"{state.get('last_user_at', '')}|{state.get('proactive_count_today', 0)}",
+            )
         # Build temporal context from persisted activity even though cron has
         # no live conversation history object.
         synthetic_history = []
@@ -305,12 +346,28 @@ def record_proactive_sent(text: str) -> None:
     try:
         now = datetime.now(timezone.utc)
         state = _load_state()
-        today = now.astimezone().strftime("%Y-%m-%d")
+        try:
+            zone = ZoneInfo(str(state.get("timezone") or "Asia/Shanghai"))
+        except ZoneInfoNotFoundError:
+            zone = timezone.utc
+        today = now.astimezone(zone).date().isoformat()
         if state.get("today_date") != today:
             state["today_date"] = today
             state["proactive_count_today"] = 0
         state["last_proactive_at"] = now.isoformat(timespec="seconds")
         state["last_proactive_text"] = str(text or "").strip()
+        state["proactive_window_date"] = today
+        recent = state.get("recent_proactive_messages")
+        if not isinstance(recent, list):
+            recent = []
+        recent.append(
+            {
+                "text": state["last_proactive_text"],
+                "timestamp": state["last_proactive_at"],
+                "status": "delivered",
+            }
+        )
+        state["recent_proactive_messages"] = recent[-5:]
         state["proactive_count_today"] = int(state.get("proactive_count_today", 0)) + 1
         starter = getattr(_runtime, "start_followup_cycle", None)
         if starter is not None:

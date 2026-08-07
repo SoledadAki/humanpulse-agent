@@ -63,7 +63,9 @@ def main() -> int:
     gateway_run = Path(hb.__file__).resolve().parents[1] / "run.py"
     run_text = gateway_run.read_text(encoding="utf-8") if gateway_run.exists() else ""
     note_pos = run_text.find("_hp_note = _hp_reply_note()")
-    update_pos = run_text.find("_hp_update_user_activity()")
+    update_pos = run_text.find("_hp_update_user_activity(history)")
+    if update_pos < 0:
+        update_pos = run_text.find("_hp_update_user_activity()")
     check(
         "gateway reads proactive note before updating user activity",
         note_pos >= 0 and update_pos >= 0 and note_pos < update_pos,

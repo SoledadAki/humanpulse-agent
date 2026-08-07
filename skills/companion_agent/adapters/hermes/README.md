@@ -19,8 +19,9 @@ The idempotent patcher:
 2. Patches `gateway/platforms/base.py` so QQ and WeChat send each bubble with
    a separate transport call and stop when a new user message interrupts.
 3. Copies `humanpulse_bridge.py` into `gateway/platforms/`.
-4. Patches `gateway/run.py` to inject time context and proactive reply context
-   without persisting them into the transcript.
+4. Patches `gateway/run.py` to inject time context and proactive reply context,
+   while retaining bounded recent history for later proactive generation
+   without persisting hidden context into the transcript.
 5. Copies `humanpulse_proactive.py` and `humanpulse_followup.py` into
    `~/.hermes/scripts/`.
 
@@ -46,11 +47,13 @@ The gateway must use this order for every real user turn:
 ```python
 note = build_proactive_reply_note()
 time_context = build_hidden_time_context(history)
-update_user_activity()
+update_user_activity(history)
 ```
 
-The note must be read first. `update_user_activity()` records the current user
-turn and intentionally clears the pending proactive-reply signal.
+The note must be read first. `update_user_activity(history)` records the current
+user turn and intentionally clears the pending proactive-reply signal. The
+history copy is bounded and is used only to give the proactive cron enough
+conversation context to choose a natural opening.
 
 The combined HumanPulse context is API-only. The original user message is
 stored through Hermes' `_persist_user_message_override`, so hidden context is
@@ -84,7 +87,9 @@ followup_tick
 
 State defaults to `~/.hermes/humanpulse/state.json` and can be overridden with
 `HUMANPULSE_STATE_FILE`. Writes are atomic. Missing skill files degrade to
-safe no-op results.
+safe no-op results. When eligible, `proactive_state_for_agent()` includes the
+local period, recent context, optional summary/memory, recent proactive
+messages, and the selected opening angle.
 
 Full source-level details are in
 [`../../references/hermes-gateway-humanpulse-wiring.md`](../../references/hermes-gateway-humanpulse-wiring.md).

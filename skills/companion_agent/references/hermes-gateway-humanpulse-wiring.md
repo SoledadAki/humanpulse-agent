@@ -9,8 +9,9 @@ update` (pip reinstall wipes site-packages edits) and ported to other hosts.
 ```
  user message ──► Hermes gateway run_sync
                      │
-                     ├─► humanpulse_bridge.update_user_activity()
-                     │       records last_user_at, stops pending follow-up
+                     ├─► humanpulse_bridge.update_user_activity(history)
+                     │       records last_user_at, bounded recent history,
+                     │       stops pending follow-up
                      │
                      ├─► humanpulse_bridge.build_hidden_time_context(history)
                      │       build_time_context() → hidden prompt prefix
@@ -24,7 +25,7 @@ update` (pip reinstall wipes site-packages edits) and ported to other hosts.
    └─ script humanpulse_proactive.py
         └─ proactive_state_for_agent()
              empty stdout  → cron skips AI call (zero tokens)
-             status block  → cron agent crafts a natural opening line
+             context prompt → cron agent crafts a natural opening line
 
  cron humanpulse-followup (5m, no_agent)
    └─ script humanpulse_followup.py
@@ -62,13 +63,13 @@ note block and before `_approval_session_key = …`:
 # no-op when the skill bridge is not installed.
 try:
     from gateway.platforms.humanpulse_bridge import (
-        update_user_activity as _hp_update_user_activity,
+             update_user_activity as _hp_update_user_activity,
         build_hidden_time_context as _hp_time_ctx,
         build_proactive_reply_note as _hp_reply_note,
     )
     _hp_note = _hp_reply_note()
     _hp_ctx = _hp_time_ctx(history)
-    _hp_update_user_activity()
+    _hp_update_user_activity(history)
     if isinstance(message, str) and (_hp_ctx or _hp_note):
         if _persist_user_message_override is None:
             _persist_user_message_override = message
@@ -84,7 +85,7 @@ Why this placement:
   HumanPulse prefix is API-only, never persisted, never replayed as user text.
 - `history` is the raw transcript rows (with `timestamp`), which is exactly
   what `build_time_context()` consumes.
-- The proactive reply note is read before `update_user_activity()` records the
+- The proactive reply note is read before `update_user_activity(history)` records the
   current turn; otherwise the new timestamp would make the note look already
   answered and clear it before the model sees it.
 
@@ -125,12 +126,15 @@ clear failure and you patch manually (the anchor diff is in the script).
 Host contract (keep small):
 
 1. On every inbound user message, before generating the reply:
-   - `update_user_activity()`
+   - read `build_proactive_reply_note()` first;
+   - `update_user_activity(history)`
    - inject `build_hidden_time_context(history)` + `build_proactive_reply_note()`
      as hidden (non-persisted) context.
 2. Periodic proactive check: if `proactive_state_for_agent()` returns
-   non-empty, ask the model for a natural line (or `[SILENT]`); after
-   delivery call `record_proactive_sent(text)`.
+   non-empty, it already contains the current period, recent context, optional
+   memory/summary, recent proactive messages, and an opening angle. Ask the
+   model for a natural line (or `[SILENT]`); after delivery call
+   `record_proactive_sent(text)`.
 3. Periodic follow-up poll: `followup_tick()`; deliver returned text.
 4. Persist the state dict anywhere (default JSON file at
    `~/.hermes/humanpulse/state.json`).

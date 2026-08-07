@@ -21,7 +21,8 @@ contract without adopting Hermes internals.
 - Real message bubbles: QQ and WeChat can receive multiple independent
   messages instead of one message containing several newline-separated parts.
 - Proactive conversation: idle checks, cooldowns, quiet hours, daily limits,
-  and zero-token silence when no message should be generated.
+  context-aware opening angles, and zero-token silence when no message should
+  be generated.
 - No-reply follow-ups: the delivered proactive message becomes stage 0;
   later stages are scheduled, missed stages are discarded, and any user reply
   cancels the remainder.
@@ -35,15 +36,15 @@ hosts can implement the same contract:
 
 | Function | Host responsibility |
 |---|---|
-| `update_user_activity()` | Record an inbound user turn and cancel pending follow-ups. |
+| `update_user_activity(history=None)` | Record an inbound turn, retain bounded recent context, and cancel pending follow-ups. |
 | `build_hidden_time_context(history)` | Build non-user-visible temporal context for the model. |
 | `build_proactive_reply_note()` | Tell the model that the next user turn may answer the last proactive message. |
-| `proactive_state_for_agent()` | Return an eligibility prompt, or empty output to skip the model call. |
+| `proactive_state_for_agent()` | Return a context-aware eligibility prompt, or empty output to skip the model call. |
 | `record_proactive_sent(text)` | Record a delivered proactive message and seed its follow-up cycle. |
 | `followup_tick()` | Return one due follow-up message, or `None` to stay silent. |
 
 For inbound messages, read `build_proactive_reply_note()` before calling
-`update_user_activity()`. Otherwise the current user turn clears the note
+`update_user_activity(history)`. Otherwise the current user turn clears the note
 before the model can see it. Hidden context must remain API-only and must not
 be persisted or replayed as user text.
 
@@ -59,7 +60,7 @@ Inbound user message
 Proactive cron
   -> proactive_state_for_agent()
   -> empty: skip model call
-  -> eligible: model writes a natural opening
+  -> eligible: time/context/angle prompt -> model writes a natural opening
   -> record_proactive_sent(delivered_text)
 
 Follow-up cron
@@ -95,6 +96,13 @@ python3 scripts/verify_humanpulse.py
 
 Hermes upgrades reinstall `site-packages`, so run `patch_gateway.py` again
 after `hermes update`. Existing cron jobs and HumanPulse state are kept.
+
+The proactive prompt uses the current local period, whether the daily window
+has just opened, bounded recent chat history, optional summary and memory
+fields, and the last five proactive messages. It selects an opening angle such
+as a period-aware greeting, continuing an open question, sharing an observation,
+changing away from a repeated topic, or checking in naturally. The model still
+chooses the wording and may return `[SILENT]` when there is no believable topic.
 
 Detailed wiring: [`adapters/hermes/README.md`](skills/companion_agent/adapters/hermes/README.md)
 

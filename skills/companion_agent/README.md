@@ -6,6 +6,7 @@
 - 分段式对话：把长回复拆成自然气泡，支持主动消息的多阶段递进。
 - 聊天自然：优先接住最新消息，减少模板句、连续追问和无依据脑补。
 - 自然主动发话：有空窗、冷却、安静时段和每日上限，没自然话题时允许沉默。
+- 上下文主动发话：根据当前时段、近期聊天、摘要、记忆和最近主动消息选择不同开场角度，避免重复。
 - 无回复追问：主动消息发出后按阶段等待，用户不回复才继续，用户一开口立即取消后续阶段。
 
 它不绑定 QQ、微信、Discord 或任何 LLM SDK。宿主负责调度、存储、发送、
@@ -23,9 +24,13 @@
 
 ## 六函数宿主契约
 
-`update_user_activity`、`build_hidden_time_context`、
+`update_user_activity(history)`、`build_hidden_time_context`、
 `build_proactive_reply_note`、`proactive_state_for_agent`、
 `record_proactive_sent`、`followup_tick`。
+
+主动消息不是固定模板：`build_proactive_prompt()` 会给宿主一个当前时段、
+近期上下文和本轮主动角度，模型据此决定具体说什么，也可以在没有自然内容
+时保持静默。
 
 仅加载 `SKILL.md` 不会自动产生时间感、主动消息或追问。运行时宿主必须把
 这六个函数接入消息入口、隐藏上下文、调度器和真实消息发送链路。

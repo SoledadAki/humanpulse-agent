@@ -19,6 +19,8 @@ DEFAULT_TIMEZONE = "Asia/Shanghai"
 DEFAULT_MAX_BUBBLES = 5
 DEFAULT_MAX_BUBBLE_CHARS = 180
 DEFAULT_MAX_STAGES = 3
+DEFAULT_MAX_CONTEXT_MESSAGES = 12
+DEFAULT_MAX_CONTEXT_CHARS = 320
 
 
 @dataclass(frozen=True)
@@ -406,7 +408,11 @@ def decide_proactive(
         quiet_start, quiet_end = time(23), time(8)
     if _quiet_hours(current.time().replace(tzinfo=None), quiet_start, quiet_end):
         return {"action": "skip", "reason_code": "QUIET_HOURS"}
-    if int(state.get("proactive_count_today", 0)) >= max(0, policy.daily_limit):
+    count_today = int(state.get("proactive_count_today", 0))
+    state_date = str(state.get("today_date") or "")
+    if state_date and state_date != current.date().isoformat():
+        count_today = 0
+    if count_today >= max(0, policy.daily_limit):
         return {"action": "skip", "reason_code": "DAILY_LIMIT"}
 
     last_user = _localize(state.get("last_user_at"), zone)
@@ -420,7 +426,122 @@ def decide_proactive(
         interval = (current - last_proactive).total_seconds() / 60
         if interval < max(0, policy.min_interval_minutes):
             return {"action": "skip", "reason_code": "PROACTIVE_COOLDOWN", "interval_minutes": round(interval, 1)}
-    return {"action": "consider", "reason_code": "ELIGIBLE"}
+    window_date = str(state.get("proactive_window_date") or "")
+    return {
+        "action": "consider",
+        "reason_code": "ELIGIBLE",
+        "period": _period(current.hour),
+        "idle_minutes": round(
+            max(0, (current - last_user).total_seconds() / 60), 1
+        ) if last_user is not None else None,
+        "window_opening": window_date != current.date().isoformat(),
+    }
+
+
+def _context_line(value: object, limit: int = DEFAULT_MAX_CONTEXT_CHARS) -> str:
+    clean = " ".join(str(value or "").split())
+    return clean[: max(40, int(limit))].rstrip()
+
+
+def _context_history(state: dict) -> list[dict]:
+    raw = state.get("recent_history") or []
+    if not isinstance(raw, list):
+        return []
+    result = []
+    for item in raw[-DEFAULT_MAX_CONTEXT_MESSAGES:]:
+        if not isinstance(item, dict):
+            continue
+        role = "user" if item.get("role") in {"user", "owner"} else "assistant"
+        text = _context_line(item.get("text") or item.get("content"))
+        if text:
+            result.append({"role": role, "text": text, "timestamp": item.get("timestamp", "")})
+    return result
+
+
+def choose_proactive_angle(
+    state: dict,
+    *,
+    now: datetime | None = None,
+    policy: ProactivePolicy | None = None,
+    seed: str = "",
+) -> str:
+    """Choose a model-facing opening angle from time and available context."""
+
+    policy = policy or ProactivePolicy()
+    decision = decide_proactive(state, now=now, policy=policy)
+    if decision.get("action") != "consider":
+        return ""
+    if decision.get("window_opening"):
+        return (
+            f"这是今天当前陪伴时段开启后的第一条消息；结合{decision['period']}自然问候，"
+            "使用符合时段的问候，但不要机械报出时间"
+        )
+
+    history = _context_history(state)
+    latest_user = next((item for item in reversed(history) if item["role"] == "user"), None)
+    latest_text = str(latest_user.get("text") or "") if latest_user else ""
+    if latest_text and any(mark in latest_text for mark in "？?吗呢呀吧"):
+        return "接住用户最近留下的疑问或未展开内容，像自然续上话题，不要重新盘问"
+
+    recent_text = str(state.get("last_proactive_text") or "").strip()
+    if recent_text:
+        return "避开最近主动消息的主题、开头和句式，从当前时段与人设换一个自然角度"
+
+    options = (
+        "分享一个此刻自然冒出的想法或小观察，不假装浏览了不存在的外部内容",
+        "从当前人设会感兴趣的话题轻轻开场，并结合近期聊天而不是凭空发问",
+        "用一句很短的创意表达或想象片段开场，保持符合人设的语气",
+        "因为想起用户而自然冒泡，可以表达想念或陪伴感，但不要制造压力",
+    )
+    digest = hashlib.blake2s(
+        f"{seed}|{decision.get('period')}|{latest_text}|{recent_text}".encode("utf-8"),
+        digest_size=2,
+    ).digest()
+    return options[int.from_bytes(digest, "big") % len(options)]
+
+
+def build_proactive_prompt(
+    state: dict,
+    *,
+    now: datetime | None = None,
+    policy: ProactivePolicy | None = None,
+    seed: str = "",
+) -> str:
+    """Build a compact model prompt for a context-aware proactive opening."""
+
+    policy = policy or ProactivePolicy()
+    decision = decide_proactive(state, now=now, policy=policy)
+    if decision.get("action") != "consider":
+        return ""
+    history = _context_history(state)
+    history_text = "\n".join(
+        f"{item['role']}: {item['text']}" for item in history[-8:]
+    ) or "（暂无近期聊天记录）"
+    proactive = state.get("recent_proactive_messages") or []
+    if not isinstance(proactive, list):
+        proactive = []
+    proactive_text = "\n".join(
+        _context_line(item.get("text") if isinstance(item, dict) else item, 180)
+        for item in proactive[-5:]
+    ) or _context_line(state.get("last_proactive_text"), 180) or "（暂无）"
+    summary = _context_line(state.get("conversation_summary"), 700) or "（暂无较早会话摘要）"
+    memory = _context_line(state.get("memory_text"), 900) or "（暂无长期记忆）"
+    persona = _context_line(state.get("persona_context"), 500) or "（由宿主人格提示提供）"
+    angle = choose_proactive_angle(state, now=now, policy=policy, seed=seed)
+    return (
+        "HumanPulse 主动消息上下文（仅供生成，不要向用户解释这些字段）\n"
+        f"当前时段：{decision.get('period', '当前')}\n"
+        f"距用户上次发言：{decision.get('idle_minutes') or '暂无'} 分钟\n"
+        f"本轮主动角度：{angle}\n"
+        f"主动程度：{_context_line(state.get('proactive_level') or 'normal', 40)}\n"
+        f"人格补充：{persona}\n"
+        f"较早会话摘要：{summary}\n"
+        f"最近聊天：\n{history_text}\n"
+        f"最近主动消息（避免重复）：\n{proactive_text}\n"
+        f"相关长期记忆：{memory}\n\n"
+        "请以角色身份自然发起 1-3 句短消息；结合本轮角度和真实上下文，"
+        "不要提定时器、扫描、技能、沉默时长或系统机制。没有自然内容时输出 [SILENT]。"
+    )
 
 
 def normalize_proactive_response(

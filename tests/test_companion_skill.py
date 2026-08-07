@@ -16,6 +16,8 @@ from skills.companion_agent import (
     split_reply_bubbles,
     start_followup_cycle,
     stop_followup,
+    build_proactive_prompt,
+    choose_proactive_angle,
 )
 from skills.companion_agent.adapters.hermes.send_bubbles import send_human_reply
 from skills.companion_agent.adapters.hermes.gateway_bubble_bridge import send_with_bubbles
@@ -64,6 +66,46 @@ class CompanionSkillTests(unittest.TestCase):
             policy=policy,
         )
         self.assertEqual(recent["reason_code"], "USER_RECENTLY_ACTIVE")
+
+    def test_proactive_prompt_uses_time_history_memory_and_recent_messages(self):
+        state = {
+            "enabled": True,
+            "last_user_at": "2026-08-07T05:00:00+08:00",
+            "proactive_count_today": 0,
+            "recent_history": [
+                {"role": "user", "text": "昨晚那个话题还没说完", "timestamp": "2026-08-07T05:00:00+08:00"},
+            ],
+            "conversation_summary": "正在讨论最近的工作压力",
+            "memory_text": "用户明确喜欢红茶",
+            "recent_proactive_messages": [{"text": "昨天问过你忙不忙"}],
+            "proactive_window_date": "",
+        }
+        prompt = build_proactive_prompt(
+            state,
+            now=datetime(2026, 8, 7, 8, 30, tzinfo=timezone(timedelta(hours=8))),
+            seed="test",
+        )
+        self.assertIn("当前时段：早上", prompt)
+        self.assertIn("时段开启", prompt)
+        self.assertIn("昨晚那个话题还没说完", prompt)
+        self.assertIn("用户明确喜欢红茶", prompt)
+        self.assertIn("昨天问过你忙不忙", prompt)
+
+    def test_proactive_angle_follows_open_question_after_first_window(self):
+        state = {
+            "enabled": True,
+            "last_user_at": "2026-08-07T05:00:00+08:00",
+            "proactive_count_today": 1,
+            "proactive_window_date": "2026-08-07",
+            "last_proactive_text": "刚才问过你今天忙不忙",
+            "recent_history": [{"role": "user", "text": "那个问题怎么办？"}],
+        }
+        angle = choose_proactive_angle(
+            state,
+            now=datetime(2026, 8, 7, 10, 0, tzinfo=timezone(timedelta(hours=8))),
+            seed="test",
+        )
+        self.assertIn("疑问", angle)
 
     def test_proactive_response_normalizes_json_and_legacy_message(self):
         result = normalize_proactive_response(
@@ -167,7 +209,7 @@ class CompanionSkillTests(unittest.TestCase):
     def test_gateway_patch_reads_proactive_note_before_user_activity_update(self):
         self.assertLess(
             RUN_ANCHOR_NEW.index("_hp_note = _hp_reply_note()"),
-            RUN_ANCHOR_NEW.index("_hp_update_user_activity()"),
+            RUN_ANCHOR_NEW.index("_hp_update_user_activity(history)"),
         )
 
     def test_gateway_patch_repairs_existing_old_call_order(self):
@@ -186,8 +228,9 @@ class CompanionSkillTests(unittest.TestCase):
             repaired = run_file.read_text(encoding="utf-8")
             self.assertLess(
                 repaired.index("_hp_note = _hp_reply_note()"),
-                repaired.index("_hp_update_user_activity()"),
+                repaired.index("_hp_update_user_activity"),
             )
+            self.assertIn("_hp_update_user_activity(history)", repaired)
 
     def test_gateway_patch_installs_both_bridges_and_bubble_send_hook(self):
         with TemporaryDirectory() as directory:
@@ -232,6 +275,22 @@ class CompanionSkillTests(unittest.TestCase):
                 state = humanpulse_state.load_state()
                 self.assertEqual(state["followup"]["stages"][0], "刚刚突然想到你")
                 self.assertEqual(len(state["followup"]["stages"]), 4)
+            finally:
+                humanpulse_state.DEFAULT_STATE_FILE = old_path
+
+    def test_user_activity_persists_compact_history_for_proactive_context(self):
+        with TemporaryDirectory() as directory:
+            old_path = humanpulse_state.DEFAULT_STATE_FILE
+            humanpulse_state.DEFAULT_STATE_FILE = Path(directory) / "state.json"
+            humanpulse_bridge._runtime = humanpulse_runtime
+            humanpulse_bridge._state_mod = humanpulse_state
+            try:
+                humanpulse_state.reset_state()
+                humanpulse_bridge.update_user_activity(
+                    [{"role": "user", "content": "我刚才还想继续聊那个话题"}]
+                )
+                state = humanpulse_state.load_state()
+                self.assertEqual(state["recent_history"][0]["text"], "我刚才还想继续聊那个话题")
             finally:
                 humanpulse_state.DEFAULT_STATE_FILE = old_path
 

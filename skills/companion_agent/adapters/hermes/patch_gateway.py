@@ -57,7 +57,7 @@ RUN_ANCHOR_NEW = """                    f\"history.]\"
                 )
                 _hp_note = _hp_reply_note()
                 _hp_ctx = _hp_time_ctx(history)
-                _hp_update_user_activity()
+                _hp_update_user_activity(history)
                 if isinstance(message, str) and (_hp_ctx or _hp_note):
                     if _persist_user_message_override is None:
                         _persist_user_message_override = message
@@ -231,7 +231,7 @@ def _apply_run_patch(site: Path, dry_run: bool) -> None:
 """
         new_order = """                _hp_note = _hp_reply_note()
                 _hp_ctx = _hp_time_ctx(history)
-                _hp_update_user_activity()
+                _hp_update_user_activity(history)
 """
         if old_order in text:
             print(f"[{'dry-run' if dry_run else 'repair'}] run.py HumanPulse call order ({target})")
@@ -239,6 +239,14 @@ def _apply_run_patch(site: Path, dry_run: bool) -> None:
                 backup = target.with_suffix(".py.humanpulse.bak")
                 backup.write_text(text, encoding="utf-8")
                 target.write_text(text.replace(old_order, new_order, 1), encoding="utf-8")
+                print(f"       backup: {backup}")
+            return
+        if "_hp_note = _hp_reply_note()" in text and "_hp_update_user_activity()" in text:
+            print(f"[{'dry-run' if dry_run else 'repair'}] run.py history capture ({target})")
+            if not dry_run:
+                backup = target.with_suffix(".py.humanpulse.bak")
+                backup.write_text(text, encoding="utf-8")
+                target.write_text(text.replace("_hp_update_user_activity()", "_hp_update_user_activity(history)", 1), encoding="utf-8")
                 print(f"       backup: {backup}")
             return
         print(f"[skip] run.py already patched ({target})")
