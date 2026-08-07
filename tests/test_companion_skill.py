@@ -70,6 +70,24 @@ class CompanionSkillTests(unittest.TestCase):
         )
         self.assertEqual(recent["reason_code"], "USER_RECENTLY_ACTIVE")
 
+    def test_default_active_window_is_eight_to_twenty_three_in_policy_timezone(self):
+        policy = ProactivePolicy(min_idle_minutes=0, timezone="Asia/Shanghai")
+        state = {"enabled": True, "last_user_at": "2026-08-07T00:00:00+08:00"}
+        before = decide_proactive(
+            state,
+            now=datetime(2026, 8, 7, 7, 59, tzinfo=timezone(timedelta(hours=8))),
+            policy=policy,
+        )
+        opening = decide_proactive(
+            state,
+            now=datetime(2026, 8, 7, 8, 0, tzinfo=timezone(timedelta(hours=8))),
+            policy=policy,
+        )
+        self.assertEqual(before["reason_code"], "QUIET_HOURS")
+        self.assertEqual(opening["action"], "consider")
+        self.assertEqual(policy.quiet_hours_start, "23:00")
+        self.assertEqual(policy.quiet_hours_end, "08:00")
+
     def test_proactive_prompt_uses_time_history_memory_and_recent_messages(self):
         state = {
             "enabled": True,

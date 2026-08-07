@@ -149,6 +149,11 @@ def _default_state() -> dict:
         "proactive_level": "normal",
         "proactive_window_date": "",
         "timezone": "Asia/Shanghai",
+        "quiet_hours_start": "23:00",
+        "quiet_hours_end": "08:00",
+        "min_idle_minutes": 180,
+        "min_interval_minutes": 60,
+        "daily_limit": 4,
         "proactive_count_today": 0,
         "today_date": "",
         "followup": {
@@ -322,15 +327,25 @@ def proactive_state_for_agent() -> str:
     try:
         decider = getattr(_runtime, "decide_proactive", None)
         prompt_builder = getattr(_runtime, "build_proactive_prompt", None)
-        if decider is None:
+        policy_type = getattr(_runtime, "ProactivePolicy", None)
+        if decider is None or policy_type is None:
             return ""
         state = _load_state()
-        decision = decider(state)
+        policy = policy_type(
+            timezone=str(state.get("timezone") or "Asia/Shanghai"),
+            quiet_hours_start=str(state.get("quiet_hours_start") or "23:00"),
+            quiet_hours_end=str(state.get("quiet_hours_end") or "08:00"),
+            min_idle_minutes=int(state.get("min_idle_minutes") or 180),
+            min_interval_minutes=int(state.get("min_interval_minutes") or 60),
+            daily_limit=int(state.get("daily_limit") or 4),
+        )
+        decision = decider(state, policy=policy)
         if decision.get("action") != "consider":
             return ""
         if prompt_builder is not None:
             return prompt_builder(
                 state,
+                policy=policy,
                 seed=f"{state.get('last_user_at', '')}|{state.get('proactive_count_today', 0)}",
             )
         # Build temporal context from persisted activity even though cron has

@@ -12,6 +12,11 @@ The core runtime uses only the Python standard library. Hermes receives a full
 gateway and cron adapter; other hosts can implement the same six-function
 contract without adopting Hermes internals.
 
+The default local-time policy is active from `08:00` inclusive through `23:00`
+exclusive, with quiet hours from `23:00` to `08:00`. The timezone defaults to
+`Asia/Shanghai` and is carried into proactive scheduling; hosts can override it
+per state or policy.
+
 ## Features
 
 - Time-aware continuity: continuous chat, short pauses, same-day returns,
