@@ -216,6 +216,22 @@ def _compact_history(history: list | None) -> list[dict]:
     return result
 
 
+def _normalize_proactive_text(value: object) -> str:
+    normalizer = getattr(_state_mod, "normalize_proactive_text", None)
+    if normalizer is not None:
+        try:
+            return str(normalizer(value) or "").strip()
+        except Exception:
+            pass
+    text = " ".join(str(value or "").split()).strip()
+    if "## Response" in text:
+        text = text.split("## Response", 1)[1].strip()
+    upper = text.upper()
+    if not text or len(text) > 600 or upper.startswith("[SILENT]") or "## SCRIPT OUTPUT" in upper:
+        return ""
+    return text
+
+
 # ---------------------------------------------------------------------------
 # Public host-facing functions
 # ---------------------------------------------------------------------------
@@ -354,8 +370,12 @@ def record_proactive_sent(text: str) -> None:
         if state.get("today_date") != today:
             state["today_date"] = today
             state["proactive_count_today"] = 0
+        clean_text = _normalize_proactive_text(text)
+        if not clean_text:
+            logger.warning("humanpulse ignored non-message proactive output")
+            return
         state["last_proactive_at"] = now.isoformat(timespec="seconds")
-        state["last_proactive_text"] = str(text or "").strip()
+        state["last_proactive_text"] = clean_text
         state["proactive_window_date"] = today
         recent = state.get("recent_proactive_messages")
         if not isinstance(recent, list):

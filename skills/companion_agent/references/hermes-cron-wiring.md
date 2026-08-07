@@ -53,7 +53,7 @@ hermes cron add --name humanpulse-followup --schedule "every 5m" \
 
 ```bash
 cd ~/.hermes/skills/companion-agent
-python3 scripts/verify_humanpulse.py   # 19/19 PASS
+python3 scripts/verify_humanpulse.py   # 20/20 PASS
 ```
 
 ## State shape (state.py)

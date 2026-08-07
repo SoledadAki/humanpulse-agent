@@ -278,6 +278,21 @@ class CompanionSkillTests(unittest.TestCase):
             finally:
                 humanpulse_state.DEFAULT_STATE_FILE = old_path
 
+    def test_proactive_reply_note_is_available_before_activity_update(self):
+        with TemporaryDirectory() as directory:
+            old_path = humanpulse_state.DEFAULT_STATE_FILE
+            humanpulse_state.DEFAULT_STATE_FILE = Path(directory) / "state.json"
+            humanpulse_bridge._runtime = humanpulse_runtime
+            humanpulse_bridge._state_mod = humanpulse_state
+            try:
+                humanpulse_state.reset_state()
+                humanpulse_bridge.record_proactive_sent("刚刚突然想到你")
+                self.assertIn("HumanPulse", humanpulse_bridge.build_proactive_reply_note())
+                humanpulse_bridge.update_user_activity()
+                self.assertEqual(humanpulse_bridge.build_proactive_reply_note(), "")
+            finally:
+                humanpulse_state.DEFAULT_STATE_FILE = old_path
+
     def test_user_activity_persists_compact_history_for_proactive_context(self):
         with TemporaryDirectory() as directory:
             old_path = humanpulse_state.DEFAULT_STATE_FILE
@@ -291,6 +306,50 @@ class CompanionSkillTests(unittest.TestCase):
                 )
                 state = humanpulse_state.load_state()
                 self.assertEqual(state["recent_history"][0]["text"], "我刚才还想继续聊那个话题")
+            finally:
+                humanpulse_state.DEFAULT_STATE_FILE = old_path
+
+    def test_state_repairs_nested_followup_and_cron_report_pollution(self):
+        with TemporaryDirectory() as directory:
+            old_path = humanpulse_state.DEFAULT_STATE_FILE
+            humanpulse_state.DEFAULT_STATE_FILE = Path(directory) / "state.json"
+            try:
+                humanpulse_state.DEFAULT_STATE_FILE.write_text(
+                    json.dumps(
+                        {
+                            "last_proactive_at": "2026-08-07T10:00:00+00:00",
+                            "last_proactive_text": "# Cron report\n" + "x" * 1400,
+                            "followup": {
+                                "status": "committed",
+                                "state": {"status": "active", "stage_index": 1},
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                repaired = humanpulse_state.load_state()
+                self.assertEqual(repaired["last_proactive_text"], "")
+                self.assertEqual(repaired["last_proactive_at"], "")
+                self.assertNotIn("state", repaired["followup"])
+                self.assertEqual(repaired["followup"]["status"], "idle")
+                persisted = json.loads(humanpulse_state.DEFAULT_STATE_FILE.read_text(encoding="utf-8"))
+                self.assertNotIn("state", persisted["followup"])
+            finally:
+                humanpulse_state.DEFAULT_STATE_FILE = old_path
+
+    def test_record_proactive_sent_rejects_cron_report_instead_of_seeding_followup(self):
+        with TemporaryDirectory() as directory:
+            old_path = humanpulse_state.DEFAULT_STATE_FILE
+            humanpulse_state.DEFAULT_STATE_FILE = Path(directory) / "state.json"
+            humanpulse_bridge._runtime = humanpulse_runtime
+            humanpulse_bridge._state_mod = humanpulse_state
+            try:
+                humanpulse_state.reset_state()
+                humanpulse_bridge.record_proactive_sent("## Script Output\n" + "x" * 1400)
+                state = humanpulse_state.load_state()
+                self.assertEqual(state["last_proactive_text"], "")
+                self.assertEqual(state["proactive_count_today"], 0)
+                self.assertEqual(state["followup"]["status"], "idle")
             finally:
                 humanpulse_state.DEFAULT_STATE_FILE = old_path
 

@@ -114,7 +114,7 @@ hermes cron add --name humanpulse-followup --schedule "every 5m" \
 ```bash
 cd ~/.hermes/skills/companion-agent
 python3 adapters/hermes/patch_gateway.py   # idempotent: skip if already patched
-python3 scripts/verify_humanpulse.py       # 19/19 PASS expected
+python3 scripts/verify_humanpulse.py       # 20/20 PASS expected
 ```
 
 Note: `patch_gateway.py` anchors on the exact interrupted-turn note text in

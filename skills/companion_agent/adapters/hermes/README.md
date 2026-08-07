@@ -91,5 +91,10 @@ safe no-op results. When eligible, `proactive_state_for_agent()` includes the
 local period, recent context, optional summary/memory, recent proactive
 messages, and the selected opening angle.
 
+The state loader repairs the two known legacy failures on load: nested
+`followup.state` commit envelopes are flattened, and oversized cron reports
+are rejected as proactive messages. A polluted old state therefore becomes
+idle instead of being injected into the next conversation.
+
 Full source-level details are in
 [`../../references/hermes-gateway-humanpulse-wiring.md`](../../references/hermes-gateway-humanpulse-wiring.md).

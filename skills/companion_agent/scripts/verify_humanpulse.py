@@ -3,13 +3,14 @@
 
 Checks (in order):
   1. gateway bridge import + skill runtime load
-  2. gateway injection reads the proactive note before activity is updated
-  3. time-context builder returns the expected hidden context shape
-  4. proactive decision gating (user-recently-active -> skip)
-  5. record_proactive_sent keeps delivered text as follow-up stage 0
-  6. build_proactive_reply_note fires before the user replies, clears after
-  7. followup_tick persists the inner follow-up state without nesting it
-  8. cron scripts are executable and return valid exit codes
+  2. legacy state pollution is repaired before use
+  3. gateway injection reads the proactive note before activity is updated
+  4. time-context builder returns the expected hidden context shape
+  5. proactive decision gating (user-recently-active -> skip)
+  6. record_proactive_sent keeps delivered text as follow-up stage 0
+  7. build_proactive_reply_note fires before the user replies, clears after
+  8. followup_tick persists the inner follow-up state without nesting it
+  9. cron scripts are executable and return valid exit codes
 
 Run from anywhere with the Hermes venv python:
     python3 scripts/verify_humanpulse.py
@@ -20,6 +21,7 @@ After any `hermes update` (pip reinstall) re-apply the gateway patches
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -59,6 +61,26 @@ def main() -> int:
         return 1
     check("bridge import", True)
     check("skill runtime loads", hb._load_modules(), str(hb._locate_skill_dir()))
+
+    state_path = Path(tmpdir) / "state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "last_proactive_at": "2026-08-07T10:00:00+00:00",
+                "last_proactive_text": "# Cron report\n" + "x" * 1400,
+                "followup": {"status": "committed", "state": {"status": "active"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    repaired = hb._load_state()
+    check(
+        "legacy state pollution is repaired",
+        repaired.get("last_proactive_text") == ""
+        and "state" not in repaired.get("followup", {})
+        and repaired.get("followup", {}).get("status") == "idle",
+        repr(repaired),
+    )
 
     gateway_run = Path(hb.__file__).resolve().parents[1] / "run.py"
     run_text = gateway_run.read_text(encoding="utf-8") if gateway_run.exists() else ""

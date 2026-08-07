@@ -86,6 +86,11 @@ The patcher is idempotent. It copies both gateway bridges, patches
 scripts under `~/.hermes/scripts/`. It creates `.humanpulse.bak` backups before
 changing existing gateway files.
 
+On the first use after upgrading, `state.py` also repairs legacy state: it
+unwraps an accidental `followup.state` envelope, removes oversized cron
+reports from `last_proactive_text`, and leaves the follow-up cycle idle instead
+of sending polluted text.
+
 Then create the proactive and follow-up jobs from
 [`references/hermes-cron-wiring.md`](skills/companion_agent/references/hermes-cron-wiring.md),
 restart the Hermes gateway, and verify:

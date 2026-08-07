@@ -43,6 +43,8 @@ import json
 import os
 from pathlib import Path
 
+MAX_STORED_PROACTIVE_CHARS = 600
+
 DEFAULT_STATE_FILE = Path(
     os.environ.get("HUMANPULSE_STATE_FILE", Path.home() / ".hermes" / "humanpulse" / "state.json")
 )
@@ -52,16 +54,16 @@ DEFAULT_STATE: dict = {
     "busy": False,
     "last_user_at": "",
     "last_proactive_at": "",
-        "last_proactive_text": "",
-        "recent_proactive_messages": [],
-        "recent_history": [],
-        "conversation_summary": "",
-        "memory_text": "",
-        "persona_context": "",
-        "proactive_level": "normal",
-        "proactive_window_date": "",
-        "timezone": "Asia/Shanghai",
-        "proactive_count_today": 0,
+    "last_proactive_text": "",
+    "recent_proactive_messages": [],
+    "recent_history": [],
+    "conversation_summary": "",
+    "memory_text": "",
+    "persona_context": "",
+    "proactive_level": "normal",
+    "proactive_window_date": "",
+    "timezone": "Asia/Shanghai",
+    "proactive_count_today": 0,
     "today_date": "",
     "followup": {
         "cycle_id": "",
@@ -90,10 +92,14 @@ def load_state() -> dict:
                 _deep_merge(state, raw)
     except Exception:
         pass
-    return state
+    normalized = _normalize_state(state)
+    if normalized != state:
+        save_state(normalized)
+    return normalized
 
 
 def save_state(state: dict) -> None:
+    state = _normalize_state(state)
     DEFAULT_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     temp = DEFAULT_STATE_FILE.with_suffix(DEFAULT_STATE_FILE.suffix + ".tmp")
     temp.write_text(
@@ -114,3 +120,68 @@ def _deep_merge(base: dict, override: dict) -> None:
             _deep_merge(base[key], value)
         else:
             base[key] = value
+
+
+def normalize_proactive_text(value: object) -> str:
+    """Accept only a short delivered message, not a cron report or prompt."""
+    text = " ".join(str(value or "").split()).strip()
+    if "## Response" in text:
+        text = text.split("## Response", 1)[1].strip()
+    upper = text.upper()
+    if (
+        not text
+        or len(text) > MAX_STORED_PROACTIVE_CHARS
+        or upper in {"[SILENT]", "SILENT", "NO_REPLY", "NO REPLY"}
+        or upper.startswith("[SILENT]")
+        or text.startswith("#")
+        or "## SCRIPT OUTPUT" in upper
+    ):
+        return ""
+    return text
+
+
+def _default_followup() -> dict:
+    return json.loads(json.dumps(DEFAULT_STATE["followup"]))
+
+
+def _normalize_followup(value: object) -> dict:
+    followup = value if isinstance(value, dict) else {}
+    # Repair the old commit envelope: {"status": ..., "state": {...}}.
+    for _ in range(2):
+        nested = followup.get("state") if isinstance(followup, dict) else None
+        if not isinstance(nested, dict):
+            break
+        followup = nested
+    normalized = _default_followup()
+    normalized.update(followup)
+    normalized.pop("state", None)
+    return normalized
+
+
+def _normalize_state(state: dict) -> dict:
+    normalized = json.loads(json.dumps(state if isinstance(state, dict) else DEFAULT_STATE))
+    raw_text = normalized.get("last_proactive_text")
+    clean_text = normalize_proactive_text(raw_text)
+    normalized["followup"] = _normalize_followup(normalized.get("followup"))
+
+    recent = normalized.get("recent_proactive_messages")
+    if not isinstance(recent, list):
+        recent = []
+    cleaned_recent = []
+    for item in recent[-5:]:
+        item_text = item.get("text") if isinstance(item, dict) else item
+        item_text = normalize_proactive_text(item_text)
+        if item_text:
+            cleaned_recent.append(
+                {"text": item_text, "status": "delivered"}
+            )
+    normalized["recent_proactive_messages"] = cleaned_recent
+
+    if raw_text and not clean_text:
+        normalized["last_proactive_text"] = ""
+        normalized["last_proactive_at"] = ""
+        normalized["recent_proactive_messages"] = []
+        normalized["followup"] = _default_followup()
+    else:
+        normalized["last_proactive_text"] = clean_text
+    return normalized
