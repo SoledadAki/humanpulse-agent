@@ -9,11 +9,19 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from pathlib import Path
+import sys
 
 try:
     from skills.companion_agent.runtime import split_reply_bubbles
 except ImportError:  # copied beside runtime.py into a host skill directory
-    from runtime import split_reply_bubbles
+    try:
+        from runtime import split_reply_bubbles
+    except ImportError:
+        skill_root = Path(__file__).resolve().parents[2]
+        if str(skill_root) not in sys.path:
+            sys.path.insert(0, str(skill_root))
+        from runtime import split_reply_bubbles
 
 
 SendOne = Callable[[str], Awaitable[str | None]]

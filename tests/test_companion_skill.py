@@ -16,6 +16,7 @@ from skills.companion_agent import (
     stop_followup,
 )
 from skills.companion_agent.adapters.hermes.send_bubbles import send_human_reply
+from skills.companion_agent.adapters.hermes.gateway_bubble_bridge import send_with_bubbles
 
 
 NOW = datetime(2026, 8, 6, 15, 0, tzinfo=timezone.utc)
@@ -127,6 +128,25 @@ class CompanionSkillTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "sent")
         self.assertEqual(sent, ["第一句。", "第二句！"])
+
+    def test_hermes_gateway_bridge_cancels_before_next_bubble(self):
+        sent = []
+        interrupted = asyncio.Event()
+
+        async def send_one(text):
+            sent.append(text)
+            interrupted.set()
+            return "message-id"
+
+        result = asyncio.run(
+            send_with_bubbles(
+                "第一句。第二句！第三句？",
+                send_one,
+                interrupt_event=interrupted,
+            )
+        )
+        self.assertEqual(result["status"], "cancelled")
+        self.assertEqual(sent, ["第一句。"])
 
 
 if __name__ == "__main__":

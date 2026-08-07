@@ -14,17 +14,18 @@ The host loop should:
 
 ### QQ/WeChat segmented delivery
 
-The model output alone does not create separate platform messages. Hermes must
-call its QQ/WeChat sender once per bubble. Use
-`send_bubbles.py` as the reference bridge:
+The model output alone does not create separate platform messages. The actual
+hook belongs in Hermes' final gateway delivery layer. A newline inside one
+string is still one platform message. Use `gateway_bubble_bridge.py` and the
+full [gateway integration guide](gateway-integration.md):
 
 ```python
-from skills.companion_agent.adapters.hermes.send_bubbles import send_human_reply
+from skills.companion_agent.adapters.hermes.gateway_bubble_bridge import send_with_fallback
 
-result = await send_human_reply(
+result = await send_with_fallback(
     model_text,
     send_one=hermes_send_message,
-    is_cancelled=lambda: conversation_has_new_user_message(),
+    interrupt_event=interrupt_event,
 )
 ```
 
@@ -32,6 +33,11 @@ result = await send_human_reply(
 one joined string to it. The helper sends each bubble independently, adds a
 short bounded typing pause, and stops before the next bubble when the user
 speaks.
+
+For a Hermes installation that has a shared `BasePlatformAdapter`, call the
+bridge from the final `_process_message_background()` delivery point. Do not
+patch only the model response parser: that would reproduce the one-bubble
+problem shown by clients that render newlines inside a single message.
 
 For proactive follow-ups, use `start_followup_cycle()`, `poll_followup()`, and
 `commit_followup()` around the same sender. A new inbound message should call
