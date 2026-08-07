@@ -1,152 +1,153 @@
-# Companion Agent Runtime
+# HumanPulse Agent
 
-> A framework-neutral behavior layer for human-like agent chat and roleplay.
-> Built for Hermes and AstrBot, reusable from Codex and Claude Code.
+> A portable human-like interaction layer for companion chat and roleplay agents.
+> Built first for Hermes and AstrBot, with reusable guidance for Codex and Claude Code.
 
-Companion Agent Runtime turns the hard-to-reuse parts of natural agent
-conversation into a portable skill and a dependency-free Python runtime.
-It focuses on **anthropomorphic feel**: the pacing, timing, length, rhythm, and
-initiative that make roleplay and companion chat feel less like a form and more
-like a conversation.
+HumanPulse Agent packages the behavior that makes an agent feel present in an
+ongoing conversation: awareness of elapsed time, natural reply length and
+punctuation, independent message bubbles, proactive openings, and staged
+follow-ups when the user does not reply.
 
-## What it provides
+The core runtime uses only the Python standard library. Hermes receives a full
+gateway and cron adapter; other hosts can implement the same six-function
+contract without adopting Hermes internals.
 
-- **Human-like expression** — context-sensitive reply length, varied rhythm,
-  natural bubbles, and conversational punctuation instead of a full stop on
-  every line.
-- **Time-aware continuity** — distinguishes continuous chat, short pauses,
-  returning later the same day, coming back after a night, and longer absences.
-- **Segmented replies** — supports natural multi-bubble responses without
-  breaking code, lists, URLs, or tightly connected explanations.
-- **Proactive conversation** — quiet hours, cooldowns, idle checks, daily
-  limits, safe silence, and a structured JSON response protocol.
-- **No-reply follow-ups** — staged follow-up cycles that wait for user activity,
-  retry only when appropriate, stop immediately when the user replies, and do
-  not catch up missed stages.
-- **Portable integration** — no transport, database, scheduler, or LLM SDK is
-  required by the core runtime.
+## Features
 
-## Integration targets
+- Time-aware continuity: continuous chat, short pauses, same-day returns,
+  overnight gaps, and longer absences.
+- Human-like expression: context-sensitive length, varied rhythm, less
+  mechanical punctuation, and no forced question at the end of every reply.
+- Real message bubbles: QQ and WeChat can receive multiple independent
+  messages instead of one message containing several newline-separated parts.
+- Proactive conversation: idle checks, cooldowns, quiet hours, daily limits,
+  and zero-token silence when no message should be generated.
+- No-reply follow-ups: the delivered proactive message becomes stage 0;
+  later stages are scheduled, missed stages are discarded, and any user reply
+  cancels the remainder.
+- Safe fallback: if the skill or bridge is missing, Hermes keeps its original
+  behavior instead of failing the gateway.
 
-Hermes and AstrBot are the primary runtime hosts. They can map the skill and
-runtime calls to their own message APIs, persistence, and schedulers.
+## Host contract
 
-Codex and Claude Code can load the same skill as development agents. They are
-useful for implementing, reviewing, and maintaining a companion host, but they
-are not treated as message transports by this project.
+The portable Hermes bridge exposes six operations. AstrBot and other chat
+hosts can implement the same contract:
+
+| Function | Host responsibility |
+|---|---|
+| `update_user_activity()` | Record an inbound user turn and cancel pending follow-ups. |
+| `build_hidden_time_context(history)` | Build non-user-visible temporal context for the model. |
+| `build_proactive_reply_note()` | Tell the model that the next user turn may answer the last proactive message. |
+| `proactive_state_for_agent()` | Return an eligibility prompt, or empty output to skip the model call. |
+| `record_proactive_sent(text)` | Record a delivered proactive message and seed its follow-up cycle. |
+| `followup_tick()` | Return one due follow-up message, or `None` to stay silent. |
+
+For inbound messages, read `build_proactive_reply_note()` before calling
+`update_user_activity()`. Otherwise the current user turn clears the note
+before the model can see it. Hidden context must remain API-only and must not
+be persisted or replayed as user text.
 
 ## Architecture
 
 ```text
-                 model / roleplay prompt
-                           │
-                           ▼
-     ┌────────────────────────────────────────┐
-     │ Companion Agent Skill                   │
-     │ human-like style · time · initiative   │
-     └────────────────────────────────────────┘
-                           │
-                           ▼
-     ┌────────────────────────────────────────┐
-     │ Portable Python runtime                │
-     │ context · bubbles · proactive state    │
-     │ follow-up claim · cancel · commit      │
-     └────────────────────────────────────────┘
-                           │
-             ┌─────────────┴─────────────┐
-             ▼                           ▼
-        Hermes / AstrBot          other chat hosts
-        scheduler + transport     Discord · QQ · Web · ...
+Inbound user message
+  -> proactive reply note + time context
+  -> update user activity / cancel follow-up
+  -> model reply
+  -> QQ/WeChat independent bubble delivery
+
+Proactive cron
+  -> proactive_state_for_agent()
+  -> empty: skip model call
+  -> eligible: model writes a natural opening
+  -> record_proactive_sent(delivered_text)
+
+Follow-up cron
+  -> followup_tick()
+  -> due text: deliver verbatim
+  -> None: stay silent
 ```
 
-The host remains responsible for message delivery, persistence, permissions,
-and calling the follow-up state machine on a schedule. The skill defines the
-behavior contract; it does not pretend to be a platform bot.
+## Hermes installation
 
-## Quick start
+Installing only `SKILL.md` changes model guidance but does not activate the
+runtime features. Hermes also needs the gateway bridge, the final delivery
+hook, and two cron jobs.
 
-Copy `skills/companion_agent/` into the host's skill directory and keep
-`SKILL.md` at the skill root. For Hermes, use its user or project skills
-directory. For AstrBot, import or vendor `runtime.py` from a thin plugin
-adapter.
+From an installed skill directory:
 
-For Codex and Claude Code, install the same directory as a development skill:
+```bash
+python3 adapters/hermes/patch_gateway.py
+```
+
+The patcher is idempotent. It copies both gateway bridges, patches
+`gateway/platforms/base.py` and `gateway/run.py`, and installs the two cron
+scripts under `~/.hermes/scripts/`. It creates `.humanpulse.bak` backups before
+changing existing gateway files.
+
+Then create the proactive and follow-up jobs from
+[`references/hermes-cron-wiring.md`](skills/companion_agent/references/hermes-cron-wiring.md),
+restart the Hermes gateway, and verify:
+
+```bash
+python3 scripts/verify_humanpulse.py
+```
+
+Hermes upgrades reinstall `site-packages`, so run `patch_gateway.py` again
+after `hermes update`. Existing cron jobs and HumanPulse state are kept.
+
+Detailed wiring: [`adapters/hermes/README.md`](skills/companion_agent/adapters/hermes/README.md)
+
+## Install with an agent
+
+Give this repository URL and the following request to an agent that has local
+filesystem access:
 
 ```text
-.codex/skills/companion-agent/SKILL.md
-.claude/skills/companion-agent/SKILL.md
+Install HumanPulse Agent from https://github.com/SoledadAki/humanpulse-agent
+for my current host.
+
+If this is Hermes:
+1. Install skills/companion_agent as a Hermes skill.
+2. Run adapters/hermes/patch_gateway.py with the Hermes Python environment.
+3. Inspect existing cron jobs, then create or update the two jobs documented in
+   references/hermes-cron-wiring.md without creating duplicates.
+4. Do not change credentials, persona prompts, unrelated configuration, or
+   other platforms.
+5. Restart the gateway only after telling me it is required.
+6. Run scripts/verify_humanpulse.py and report each failed check exactly.
+
+If this is AstrBot, implement the six-function host contract from
+adapters/astrbot/README.md using the installed AstrBot plugin API.
+For Codex or Claude Code, install only the development skill and do not pretend
+that proactive scheduling or message transport exists unless a host provides it.
 ```
 
-### Install with an agent
+## AstrBot, Codex, and Claude Code
 
-You can ask an agent with filesystem access to install the skill for you. Copy
-and paste this prompt into Hermes, AstrBot, Codex, Claude Code, or another
-agent that can manage local files:
+AstrBot is a primary runtime target. Its plugin should call the six host
+functions from its inbound handler and scheduler, then send every bubble with
+the platform's real outbound API. See
+[`adapters/astrbot/README.md`](skills/companion_agent/adapters/astrbot/README.md).
 
-```text
-Install the HumanPulse companion-agent skill from:
-https://github.com/SoledadAki/humanpulse-agent
+Codex and Claude Code can load `SKILL.md` as development guidance for building
+or maintaining a chat host. They are not message transports or schedulers by
+themselves.
 
-First detect which host I am using: Hermes, AstrBot, Codex, or Claude Code.
-Install only the skill directory `skills/companion_agent/` into the host's
-recommended skill location. Preserve the required `SKILL.md` at the skill root.
-Do not modify unrelated projects, credentials, prompts, or configuration.
-If the skill already exists, show the existing path and ask before replacing it.
-After installation, verify that the skill is discoverable and report the exact
-installed path and the restart/new-session action required by this host.
-```
-
-The agent should report the target path before making a destructive replacement.
-For runtime hosts, installation of the skill does not replace the host's
-scheduler or message transport; those remain host-specific.
-
-The runtime exposes small, host-agnostic operations:
-
-```python
-from skills.companion_agent import (
-    build_time_context,
-    decide_proactive,
-    normalize_proactive_response,
-    start_followup_cycle,
-    poll_followup,
-    commit_followup,
-    stop_followup,
-)
-```
-
-## Follow-up cycle
-
-The default no-reply follow-up windows are intentionally human-paced:
-
-```text
-35–50 minutes → 15–25 minutes → 3–8 minutes → 1–3 minutes
-```
-
-The host should persist the state returned by `start_followup_cycle()`, call
-`poll_followup()` from its scheduler, send a claimed stage, then call
-`commit_followup()`. Any new user message should call `stop_followup()` first.
-Stages missed beyond the grace period are discarded rather than sent late.
-
-## Safety and boundaries
-
-Roleplay can add voice, mood, fictional reactions, and character continuity. It
-must not invent real-world actions, private memories, browsing, or shared
-experiences. Human-like expression means believable pacing and wording, not
-deception about what the agent is or what it has actually done.
-
-## Local verification
+## Verification
 
 ```powershell
-python -m unittest tests.test_companion_skill -v
+python -m unittest discover -s tests -v
 ```
 
-The repository intentionally has no third-party runtime dependency.
+The repository has no third-party runtime dependency.
 
 ## 中文简介
 
-这是一个面向 Hermes、AstrBot 的通用 AI 拟人感行为层，也可以被 Codex 和
-Claude Code 作为开发 skill 使用。它把时间感、聊天节奏、常人化字数、
-口语化标点、分段式回复、主动发话和无回复追问整理成可复用协议。
+HumanPulse Agent 是一个面向 Hermes、AstrBot 的通用 AI 拟人感行为层，也可
+作为 Codex 和 Claude Code 的开发 skill。它把时间感、常人化字数和标点、
+真实多气泡发送、自然主动发话、主动消息后的接话提示，以及用户未回复时的
+分阶段追问整理成可移植的宿主契约。
 
-项目不绑定具体聊天平台，也不负责发送消息；宿主负责调度、存储、权限和
-消息投递，skill 负责“应该怎样自然地聊”。
+Hermes 适配器已经覆盖完整链路，不再只是“库里有功能但没人调用”。AstrBot
+可以按相同六函数契约接入，核心运行时不绑定具体平台或 LLM SDK。

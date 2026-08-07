@@ -1,6 +1,6 @@
 ---
 name: companion-agent
-description: Human-like conversation behavior for roleplay and companion agents: time-aware continuity, natural pacing, segmented replies, and safe proactive conversation.
+description: "Human-like conversation behavior for roleplay and companion agents: time-aware continuity, natural pacing, segmented replies, and safe proactive conversation."
 ---
 
 # Companion Agent — Human-like Interaction
@@ -125,4 +125,27 @@ that tries to replace the user's real relationships.
 
 The runtime in `runtime.py` is dependency-free and can be copied into a plugin.
 `schema/proactive-response.schema.json` defines the model-facing JSON shape.
-See `adapters/hermes/README.md` and `adapters/astrbot/README.md` for wiring.
+
+Runtime hosts should expose these six operations:
+
+1. `update_user_activity()` records each inbound user turn and cancels pending
+   follow-ups.
+2. `build_hidden_time_context(history)` creates temporal context that is sent
+   to the model but never persisted as user text.
+3. `build_proactive_reply_note()` marks the next user turn as a likely reply
+   to the most recently delivered proactive message.
+4. `proactive_state_for_agent()` returns an eligibility prompt or empty output
+   so the scheduler can skip the model call.
+5. `record_proactive_sent(text)` records only a message that was actually
+   delivered and stores it as follow-up stage 0.
+6. `followup_tick()` returns one due follow-up or `None`.
+
+On an inbound turn, read the proactive reply note before updating user
+activity, then inject the note and time context as non-persisted model context.
+Send split bubbles through separate transport calls and stop before the next
+bubble if a new user message arrives.
+
+For Hermes, read `adapters/hermes/README.md` and
+`references/hermes-gateway-humanpulse-wiring.md`. For AstrBot, read
+`adapters/astrbot/README.md`. Installing this skill without host wiring does
+not create schedulers or change the transport.
