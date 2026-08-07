@@ -312,6 +312,10 @@ def _enable_cron_session_mirroring(
         if job.get("attach_to_session") is not True:
             job["attach_to_session"] = True
             changed.append(job["name"])
+        if job["name"] == "humanpulse-followup" and job.get("no_agent") is not False:
+            job["no_agent"] = False
+            if job["name"] not in changed:
+                changed.append(job["name"])
     missing = HUMANPULSE_JOB_NAMES - found
     if missing:
         print(f"[warn] HumanPulse cron jobs not found: {', '.join(sorted(missing))}")

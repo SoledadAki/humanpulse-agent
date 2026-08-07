@@ -298,7 +298,7 @@ class CompanionSkillTests(unittest.TestCase):
                     {
                         "jobs": [
                             {"name": "humanpulse-proactive", "attach_to_session": False},
-                            {"name": "humanpulse-followup", "attach_to_session": False},
+                            {"name": "humanpulse-followup", "attach_to_session": False, "no_agent": True},
                             {"name": "anime-daily", "attach_to_session": False},
                         ]
                     }
@@ -309,6 +309,7 @@ class CompanionSkillTests(unittest.TestCase):
             jobs = json.loads(jobs_path.read_text(encoding="utf-8"))["jobs"]
             self.assertEqual(jobs[0]["attach_to_session"], True)
             self.assertEqual(jobs[1]["attach_to_session"], True)
+            self.assertEqual(jobs[1]["no_agent"], False)
             self.assertEqual(jobs[2]["attach_to_session"], False)
             self.assertTrue(jobs_path.with_suffix(".json.humanpulse.bak").exists())
 
