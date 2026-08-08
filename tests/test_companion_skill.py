@@ -38,6 +38,7 @@ from skills.companion_agent.gateway.platforms import humanpulse_bridge
 from skills.companion_agent import runtime as humanpulse_runtime
 from skills.companion_agent import state as humanpulse_state
 from skills.companion_agent.adapters.hermes.cron.humanpulse_followup import _extract_response
+from skills.companion_agent.gateway.platforms import cron_bubble_bridge
 
 
 NOW = datetime(2026, 8, 6, 15, 0, tzinfo=timezone.utc)
@@ -130,10 +131,10 @@ class CompanionSkillTests(unittest.TestCase):
 
     def test_followup_count_and_delay_are_variable_but_bounded(self):
         self.assertEqual(choose_followup_count({"followup_count": 0}), 0)
-        self.assertEqual(choose_followup_count({"followup_count": 3}), 3)
+        self.assertEqual(choose_followup_count({"followup_count": 3}), 2)
         state = {"proactive_level": "normal", "last_proactive_text": "你醒了吗？"}
         counts = {choose_followup_count(state, seed=f"seed-{i}") for i in range(12)}
-        self.assertTrue(counts <= {1, 2, 3})
+        self.assertTrue(counts <= {1, 2})
         policy = FollowupPolicy(intervals_minutes=((26, 36), (8, 13), (4, 7)))
         delays = []
         for index in range(6):
@@ -246,6 +247,27 @@ class CompanionSkillTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "cancelled")
         self.assertEqual(sent, ["第一句。"])
+
+    def test_cron_bubble_bridge_delivers_independent_bubbles(self):
+        sent = []
+
+        async def send_one(text):
+            sent.append(text)
+            return "message-id"
+
+        old_sender = cron_bubble_bridge.send_human_reply
+        cron_bubble_bridge.send_human_reply = send_human_reply
+        try:
+            result = asyncio.run(
+                cron_bubble_bridge.send_cron_reply(
+                    "早上好。起床了吗？",
+                    send_one=send_one,
+                )
+            )
+        finally:
+            cron_bubble_bridge.send_human_reply = old_sender
+        self.assertEqual(result["status"], "sent")
+        self.assertEqual(sent, ["早上好。", "起床了吗？"])
 
     def test_gateway_patch_reads_proactive_note_before_user_activity_update(self):
         self.assertLess(

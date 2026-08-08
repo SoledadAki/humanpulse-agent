@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 DEFAULT_TIMEZONE = "Asia/Shanghai"
 DEFAULT_MAX_BUBBLES = 5
 DEFAULT_MAX_BUBBLE_CHARS = 180
-DEFAULT_MAX_STAGES = 4
+DEFAULT_MAX_STAGES = 3
 DEFAULT_MAX_CONTEXT_MESSAGES = 12
 DEFAULT_MAX_CONTEXT_CHARS = 320
 
@@ -506,17 +506,17 @@ def choose_followup_count(
     now: datetime | None = None,
     seed: str = "",
 ) -> int:
-    """Choose 0-3 follow-ups from persona, timing, and conversational openness."""
+    """Choose 0-2 follow-ups from persona, timing, and conversational openness."""
 
     override = state.get("followup_count")
-    if isinstance(override, int) and 0 <= override <= 3:
-        return override
+    if isinstance(override, int) and override >= 0:
+        return min(2, override)
     level = str(state.get("proactive_level") or "normal").lower()
     ranges = {
         "restrained": (0, 1),
-        "normal": (0, 3),
-        "clingy": (1, 3),
-        "custom": (0, 3),
+        "normal": (0, 2),
+        "clingy": (1, 2),
+        "custom": (0, 2),
     }
     low, high = ranges.get(level, ranges["normal"])
     zone = _timezone(str(state.get("timezone") or DEFAULT_TIMEZONE))
@@ -583,7 +583,8 @@ def build_proactive_prompt(
         f"最近聊天：\n{history_text}\n"
         f"最近主动消息（避免重复）：\n{proactive_text}\n"
         f"相关长期记忆：{memory}\n\n"
-        "请以角色身份自然发起 1-3 句短消息；结合本轮角度和真实上下文，"
+        "请以角色身份自然发起 1-2 个短气泡；每个气泡只表达一个小意思，"
+        "结合本轮角度和真实上下文，"
         "不要提定时器、扫描、技能、沉默时长或系统机制。没有自然内容时输出 [SILENT]。"
     )
 

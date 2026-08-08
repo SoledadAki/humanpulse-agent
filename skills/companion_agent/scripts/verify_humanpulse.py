@@ -130,7 +130,7 @@ def main() -> int:
     # -- 4. record -> followup seed -----------------------------------------
     proactive_text = "刚刚突然想到你，今天过得怎么样呀"
     state = hb._load_state()
-    state["followup_count"] = 3
+    state["followup_count"] = 2
     hb._save_state(state)
     hb.record_proactive_sent(proactive_text)
     st = hb._load_state()
@@ -207,7 +207,6 @@ def main() -> int:
         claimed_texts == [
             "刚说到一半……其实我还有句话想跟你说",
             "那个……你是不是在忙呀？",
-            "好啦不打扰你了，等你忙完记得回来找我",
         ],
         str(claimed_texts),
     )

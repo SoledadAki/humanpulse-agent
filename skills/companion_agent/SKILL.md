@@ -99,7 +99,7 @@ when it returns `claimed`, send that stage and call `commit_followup()` with the
 delivery result. Call `stop_followup()` immediately for any new user message,
 manual pause, quiet-hours transition, or conversation lock.
 
-The host should choose a bounded 0–3 follow-up count from the persona,
+The host should choose a bounded 0–2 follow-up count from the persona,
 time-of-day, and whether the proactive message leaves an open topic. For a
 three-stage cycle, use human-paced jittered windows around 26–36 minutes,
 then 8–13 minutes, then 4–7 minutes. A stage missed beyond the grace period is

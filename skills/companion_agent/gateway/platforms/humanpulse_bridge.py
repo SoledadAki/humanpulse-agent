@@ -367,7 +367,7 @@ def proactive_state_for_agent() -> str:
         return (
             "HumanPulse 主动消息判定：可以主动发起一条消息。\n"
             f"{time_ctx}\n"
-            "请以角色身份自然地说一句话（1-3 句），不要提定时器/扫描/技能。"
+            "请以角色身份自然地说 1-2 个短气泡，不要提定时器/扫描/技能。"
         )
     except Exception as exc:  # pragma: no cover - defensive
         logger.debug("humanpulse proactive_state_for_agent failed: %s", exc)
@@ -423,7 +423,7 @@ def record_proactive_sent(text: str) -> None:
                 if count_selector is not None
                 else 3
             )
-            followup_count = max(0, min(3, followup_count))
+            followup_count = max(0, min(2, followup_count))
             policy = _FP(
                 enabled=True,
                 max_stages=1 + followup_count,
@@ -534,7 +534,7 @@ def followup_prompt_for_agent() -> str | None:
             "不要默认使用撒娇；可以是关心、轻松玩笑、继续前文、简短提醒、表达想念，"
             "或者自然收尾，具体取决于角色和上下文。不要重复原主动消息或已经发送的追问，"
             "不要提定时器、脚本、技能、模型或沉默时长，不要施压、威胁、制造负罪感，"
-            "不要使用自伤或死亡威胁。只输出用户可见的 1-3 句短消息；没有自然内容时输出 [SILENT]。"
+            "不要使用自伤或死亡威胁。只输出用户可见的 1-2 个短气泡；没有自然内容时输出 [SILENT]。"
         )
     except Exception as exc:  # pragma: no cover - defensive
         logger.debug("humanpulse followup_prompt_for_agent failed: %s", exc)

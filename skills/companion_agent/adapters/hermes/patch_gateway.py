@@ -10,9 +10,10 @@ What it installs:
   1. gateway/platforms/base_bubble_bridge.py     (bubble sender loader)
   2. gateway/platforms/base.py                   (QQ/WeChat bubble hook)
   3. gateway/platforms/humanpulse_bridge.py      (state/runtime loader)
-  4. gateway/run.py                              (hidden context injection)
-  5. ~/.hermes/scripts/humanpulse_*.py           (cron scripts)
-  6. ~/.hermes/cron/jobs.json                    (HumanPulse session mirroring)
+  4. gateway/platforms/cron_bubble_bridge.py     (cron bubble helper)
+  5. gateway/run.py                              (hidden context injection)
+  6. ~/.hermes/scripts/humanpulse_*.py           (cron scripts)
+  7. ~/.hermes/cron/jobs.json                    (HumanPulse session mirroring)
 
 It is idempotent: already-patched files are detected and skipped.
 
@@ -34,6 +35,7 @@ SKILL_ROOT = Path(__file__).resolve().parents[2]
 GATEWAY_SOURCES = SKILL_ROOT / "gateway" / "platforms"
 BRIDGE_SOURCE = GATEWAY_SOURCES / "humanpulse_bridge.py"
 BUBBLE_BRIDGE_SOURCE = GATEWAY_SOURCES / "base_bubble_bridge.py"
+CRON_BUBBLE_BRIDGE_SOURCE = GATEWAY_SOURCES / "cron_bubble_bridge.py"
 CRON_SOURCE_DIR = Path(__file__).resolve().parent / "cron"
 CRON_JOBS = Path.home() / ".hermes" / "cron" / "jobs.json"
 HUMANPULSE_JOB_NAMES = {"humanpulse-proactive", "humanpulse-followup"}
@@ -350,6 +352,11 @@ def main() -> int:
     _copy_bridge(
         BRIDGE_SOURCE,
         site / "gateway" / "platforms" / "humanpulse_bridge.py",
+        args.dry_run,
+    )
+    _copy_bridge(
+        CRON_BUBBLE_BRIDGE_SOURCE,
+        site / "gateway" / "platforms" / "cron_bubble_bridge.py",
         args.dry_run,
     )
     _apply_run_patch(site, args.dry_run)

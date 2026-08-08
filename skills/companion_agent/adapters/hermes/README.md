@@ -101,8 +101,15 @@ Hermes follow-ups use agent mode rather than fixed no-agent text. The gate
 stays silent when no stage is due; when due, it gives the model the original
 proactive message, delivered follow-ups, recent context, stage number, and a
 safe fallback direction. The model writes the actual message in the current
-persona's voice. The default cycle chooses a variable 0–3 follow-up count and
+persona's voice. The default cycle chooses a variable 0–2 follow-up count and
 slightly jittered intervals around 26–36, 8–13, and 4–7 minutes.
+
+Cron delivery is a separate Hermes path from normal gateway replies. The
+installed scheduler must route HumanPulse job results through
+`gateway.platforms.cron_bubble_bridge.send_cron_reply()`, which calls the real
+platform sender once per short bubble. The patcher copies this helper; Hermes
+versions that already contain the HumanPulse scheduler hook should simply
+reload it after an update.
 
 Full source-level details are in
 [`../../references/hermes-gateway-humanpulse-wiring.md`](../../references/hermes-gateway-humanpulse-wiring.md).

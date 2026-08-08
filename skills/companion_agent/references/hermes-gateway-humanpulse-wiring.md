@@ -30,9 +30,14 @@ update` (pip reinstall wipes site-packages edits) and ported to other hosts.
  cron humanpulse-followup (5m, agent mode)
    └─ script humanpulse_followup.py
         ├─ detect proactive job's newest output → record_proactive_sent()
-        └─ followup_tick()
-             non-empty stdout → delivered verbatim (follow-up stage)
-             empty stdout     → silent
+        └─ followup_prompt_for_agent()
+             non-empty stdout → agent generates a contextual follow-up
+             empty stdout     → skip model call
+
+HumanPulse cron delivery
+  └─ scheduler final platform send
+       └─ cron_bubble_bridge.send_cron_reply()
+            └─ one real platform send per short bubble
 ```
 
 ## Files

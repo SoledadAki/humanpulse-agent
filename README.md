@@ -29,7 +29,7 @@ per state or policy.
   context-aware opening angles, and zero-token silence when no message should
   be generated.
 - No-reply follow-ups: the delivered proactive message becomes stage 0;
-  the host chooses a bounded 0–3 follow-up count, uses slightly varied timing,
+  the host chooses a bounded 0–2 follow-up count, uses slightly varied timing,
   generates each continuation in the active persona, discards missed stages,
   and cancels the remainder on any user reply.
 - Safe fallback: if the skill or bridge is missing, Hermes keeps its original
