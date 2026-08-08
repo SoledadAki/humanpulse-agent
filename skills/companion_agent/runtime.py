@@ -39,7 +39,7 @@ class ProactivePolicy:
 
 @dataclass(frozen=True)
 class FollowupPolicy:
-    """Timing and safety limits for no-reply proactive follow-ups."""
+    """Timing limits for no-reply proactive follow-ups."""
 
     enabled: bool = True
     max_stages: int = DEFAULT_MAX_STAGES

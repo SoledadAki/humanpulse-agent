@@ -529,12 +529,11 @@ def followup_prompt_for_agent() -> str | None:
             f"原主动消息：{original}\n"
             f"已经发送的追问：{json.dumps((state.get('recent_followup_messages') or [])[-4:], ensure_ascii=False)}\n"
             f"近期聊天：{json.dumps((state.get('recent_history') or [])[-8:], ensure_ascii=False)}\n"
-            f"当前是第 {stage}/{total} 次追问；安全递进方向参考：{fallback}\n\n"
+            f"当前是第 {stage}/{total} 次追问；递进方向参考：{fallback}\n\n"
             "请严格遵循当前角色的人格、关系距离和表达习惯，生成一条自然的后续消息。"
             "不要默认使用撒娇；可以是关心、轻松玩笑、继续前文、简短提醒、表达想念，"
             "或者自然收尾，具体取决于角色和上下文。不要重复原主动消息或已经发送的追问，"
-            "不要提定时器、脚本、技能、模型或沉默时长，不要施压、威胁、制造负罪感，"
-            "不要使用自伤或死亡威胁。只输出用户可见的 1-2 个短气泡；没有自然内容时输出 [SILENT]。"
+            "不要提定时器、脚本、技能、模型或沉默时长。只输出用户可见的 1-2 个短气泡；没有自然内容时输出 [SILENT]。"
         )
     except Exception as exc:  # pragma: no cover - defensive
         logger.debug("humanpulse followup_prompt_for_agent failed: %s", exc)

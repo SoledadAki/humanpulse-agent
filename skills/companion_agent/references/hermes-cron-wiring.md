@@ -48,7 +48,7 @@ newly delivered message.
 ```bash
 hermes cron add --name humanpulse-followup --schedule "every 5m" \
   --script humanpulse_followup.py --skill companion-agent --deliver origin \
-  "根据上方 HumanPulse 追问上下文生成一条自然的后续消息。遵循当前人设，不默认撒娇；不要提脚本、定时器或沉默时长，不要施压或使用自伤威胁。没有自然内容时输出 [SILENT]。"
+  "根据上方 HumanPulse 追问上下文生成一条自然的后续消息。遵循当前人设，不默认撒娇；不要提脚本、定时器或沉默时长。没有自然内容时输出 [SILENT]。"
 ```
 
 After both jobs exist, run `python3 adapters/hermes/patch_gateway.py`. It sets
