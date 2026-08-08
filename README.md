@@ -14,8 +14,8 @@ contract without adopting Hermes internals.
 
 The default local-time policy is active from `08:00` inclusive through `23:00`
 exclusive, with quiet hours from `23:00` to `08:00`. The timezone defaults to
-`Asia/Shanghai` and is carried into proactive scheduling; hosts can override it
-per state or policy.
+the host machine's local system timezone and is carried into proactive
+scheduling; hosts can override it per state or policy with an IANA timezone.
 
 ## Features
 

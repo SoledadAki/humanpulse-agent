@@ -15,7 +15,9 @@ import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
-DEFAULT_TIMEZONE = "Asia/Shanghai"
+# ``local`` means the host machine's current system timezone. Hosts may still
+# pass an explicit IANA name when a profile needs a different timezone.
+DEFAULT_TIMEZONE = "local"
 DEFAULT_MAX_BUBBLES = 5
 DEFAULT_MAX_BUBBLE_CHARS = 180
 DEFAULT_MAX_STAGES = 3
@@ -51,11 +53,28 @@ class FollowupPolicy:
     )
 
 
-def _timezone(name: str) -> timezone | ZoneInfo:
+def _local_timezone() -> timezone | ZoneInfo:
+    """Return the timezone configured by the operating system."""
+
+    return datetime.now().astimezone().tzinfo or timezone.utc
+
+
+def _timezone(name: str | None) -> timezone | ZoneInfo:
+    """Resolve an explicit IANA timezone or the host's local timezone."""
+
+    value = str(name or DEFAULT_TIMEZONE).strip()
+    if not value or value.lower() == DEFAULT_TIMEZONE:
+        return _local_timezone()
     try:
-        return ZoneInfo(name or DEFAULT_TIMEZONE)
+        return ZoneInfo(value)
     except ZoneInfoNotFoundError:
-        return timezone.utc
+        return _local_timezone()
+
+
+def _timezone_label(name: str | None, zone: timezone | ZoneInfo) -> str:
+    if str(name or DEFAULT_TIMEZONE).strip().lower() != DEFAULT_TIMEZONE:
+        return str(name)
+    return getattr(zone, "key", None) or zone.tzname(datetime.now()) or "local"
 
 
 def _localize(value: object, zone: timezone | ZoneInfo) -> datetime | None:
@@ -331,7 +350,7 @@ def build_time_context(
     landmark_text = "；".join(str(item).strip() for item in (personal_landmarks or []) if str(item).strip())
     return "\n".join(
         (
-            f"当前本地时间：{current:%Y-%m-%d %H:%M}，{weekdays[current.weekday()]}，{timezone_name}",
+            f"当前本地时间：{current:%Y-%m-%d %H:%M}，{weekdays[current.weekday()]}，{_timezone_label(timezone_name, zone)}",
             f"当前时段：{_period(current.hour)}",
             f"距离用户上一条消息：{_elapsed(previous_user, current)}",
             f"距离上次完整对话：{_elapsed(previous_assistant, current)}",

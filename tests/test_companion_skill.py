@@ -54,6 +54,16 @@ class CompanionSkillTests(unittest.TestCase):
         self.assertIn("隔了一夜", context)
         self.assertIn("已跨 1 个自然日", context)
 
+    def test_default_timezone_uses_system_local_timezone(self):
+        local_zone = humanpulse_runtime._timezone("local")
+        now = datetime.now().astimezone()
+        self.assertEqual(datetime.now(local_zone).utcoffset(), now.utcoffset())
+        self.assertEqual(humanpulse_runtime.DEFAULT_TIMEZONE, "local")
+        self.assertEqual(
+            humanpulse_runtime._timezone("not/a-real-timezone").utcoffset(now),
+            now.utcoffset(),
+        )
+
     def test_split_reply_bubbles_preserves_content_and_limit(self):
         text = "第一句。第二句！第三句？"
         bubbles = split_reply_bubbles(text, max_bubbles=2)

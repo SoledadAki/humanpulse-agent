@@ -119,9 +119,10 @@ are active, the daily limit is reached, or the proactive cooldown has not ended.
 Add jitter in the host scheduler rather than firing at a fixed visible cadence.
 
 Use local time for these checks. The default policy is active from 08:00
-inclusive to 23:00 exclusive and quiet from 23:00 to 08:00 in
-`Asia/Shanghai`; pass the host's IANA timezone when it differs. Do not compare
-UTC clock text directly with local quiet-hour settings.
+inclusive to 23:00 exclusive and quiet from 23:00 to 08:00 in the host
+machine's system timezone. Pass an IANA timezone only when the profile should
+use a timezone different from the machine. Do not compare UTC clock text
+directly with local quiet-hour settings.
 
 When eligible, use `build_proactive_prompt()` or an equivalent host prompt. It
 should combine the current local period, whether this is the first opening of

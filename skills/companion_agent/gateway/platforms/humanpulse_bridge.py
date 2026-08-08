@@ -40,7 +40,6 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +147,7 @@ def _default_state() -> dict:
         "persona_context": "",
         "proactive_level": "normal",
         "proactive_window_date": "",
-        "timezone": "Asia/Shanghai",
+        "timezone": "local",
         "quiet_hours_start": "23:00",
         "quiet_hours_end": "08:00",
         "min_idle_minutes": 180,
@@ -332,7 +331,7 @@ def proactive_state_for_agent() -> str:
             return ""
         state = _load_state()
         policy = policy_type(
-            timezone=str(state.get("timezone") or "Asia/Shanghai"),
+            timezone=str(state.get("timezone") or "local"),
             quiet_hours_start=str(state.get("quiet_hours_start") or "23:00"),
             quiet_hours_end=str(state.get("quiet_hours_end") or "08:00"),
             min_idle_minutes=int(state.get("min_idle_minutes") or 180),
@@ -381,10 +380,11 @@ def record_proactive_sent(text: str) -> None:
     try:
         now = datetime.now(timezone.utc)
         state = _load_state()
-        try:
-            zone = ZoneInfo(str(state.get("timezone") or "Asia/Shanghai"))
-        except ZoneInfoNotFoundError:
-            zone = timezone.utc
+        resolver = getattr(_runtime, "_timezone", None)
+        if resolver is not None:
+            zone = resolver(str(state.get("timezone") or "local"))
+        else:
+            zone = datetime.now().astimezone().tzinfo or timezone.utc
         today = now.astimezone(zone).date().isoformat()
         if state.get("today_date") != today:
             state["today_date"] = today
