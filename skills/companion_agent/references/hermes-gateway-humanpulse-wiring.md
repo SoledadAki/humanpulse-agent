@@ -47,6 +47,7 @@ HumanPulse cron delivery
 | `~/.hermes/skills/companion-agent/runtime.py` | framework-neutral runtime (time sense, proactive, follow-up, bubbles) |
 | `~/.hermes/skills/companion-agent/state.py` | JSON state persistence |
 | `<site-packages>/gateway/platforms/humanpulse_bridge.py` | loads the skill at runtime; host-facing API |
+| `<site-packages>/.../cron/scheduler.py` | routes live and standalone HumanPulse cron delivery through bubbles |
 | `<site-packages>/gateway/run.py` | `run_sync` injection (marked `# HumanPulse (companion-agent)`) |
 | `~/.hermes/scripts/humanpulse_proactive.py` | proactive cron data script |
 | `~/.hermes/scripts/humanpulse_followup.py` | follow-up watchdog script |

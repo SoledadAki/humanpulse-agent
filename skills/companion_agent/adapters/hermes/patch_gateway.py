@@ -11,9 +11,10 @@ What it installs:
   2. gateway/platforms/base.py                   (QQ/WeChat bubble hook)
   3. gateway/platforms/humanpulse_bridge.py      (state/runtime loader)
   4. gateway/platforms/cron_bubble_bridge.py     (cron bubble helper)
-  5. gateway/run.py                              (hidden context injection)
-  6. ~/.hermes/scripts/humanpulse_*.py           (cron scripts)
-  7. ~/.hermes/cron/jobs.json                    (HumanPulse session mirroring)
+  5. cron/scheduler.py                           (live + standalone cron bubbles)
+  6. gateway/run.py                              (hidden context injection)
+  7. ~/.hermes/scripts/humanpulse_*.py           (cron scripts)
+  8. ~/.hermes/cron/jobs.json                    (HumanPulse session mirroring)
 
 It is idempotent: already-patched files are detected and skipped.
 
@@ -27,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -39,6 +41,14 @@ CRON_BUBBLE_BRIDGE_SOURCE = GATEWAY_SOURCES / "cron_bubble_bridge.py"
 CRON_SOURCE_DIR = Path(__file__).resolve().parent / "cron"
 CRON_JOBS = Path.home() / ".hermes" / "cron" / "jobs.json"
 HUMANPULSE_JOB_NAMES = {"humanpulse-proactive", "humanpulse-followup"}
+SCHEDULER_PATCH_MARKER = (
+    "# HumanPulse (companion-agent): cron bubble delivery on live + standalone paths"
+)
+SCHEDULER_RELATIVE_PATHS = (
+    Path("gateway") / "cron" / "scheduler.py",
+    Path("hermes") / "cron" / "scheduler.py",
+    Path("cron") / "scheduler.py",
+)
 
 # Marker comments used to detect whether a patch is already applied.
 RUN_PATCH_MARKER = "# HumanPulse (companion-agent): hidden time context + proactive"
@@ -162,6 +172,60 @@ BASE_SEND_ANCHOR_NEW = """                    result = await self._send_with_bub
                     )
 """
 
+SCHEDULER_HELPER = '''
+
+{marker}
+def _humanpulse_scope_token(value):
+    value = getattr(value, "value", value)
+    return str(value or "").rsplit(".", 1)[-1].upper()
+
+
+def _humanpulse_scope_value(scope, keys):
+    for key in keys:
+        value = scope.get(key)
+        if value is not None:
+            if isinstance(value, dict):
+                value = value.get("name") or value.get("platform") or value
+            return value
+    for value in scope.values():
+        name = getattr(value, "name", None)
+        if name:
+            return name
+        if isinstance(value, dict) and value.get("name"):
+            return value["name"]
+    return None
+
+
+def _humanpulse_should_bubble(scope):
+    job = _humanpulse_scope_value(
+        scope, ("job", "cron_job", "current_job", "job_name")
+    )
+    if isinstance(job, dict):
+        job = job.get("name")
+    job_name = str(getattr(job, "name", job) or "").lower()
+    platform = _humanpulse_scope_value(
+        scope, ("platform", "platform_name", "target_platform", "adapter")
+    )
+    platform_name = _humanpulse_scope_token(platform)
+    if platform_name not in {"QQBOT", "WEIXIN"}:
+        for value in scope.values():
+            token = _humanpulse_scope_token(value)
+            if token in {"QQBOT", "WEIXIN"}:
+                platform_name = token
+                break
+    return job_name.startswith("humanpulse") and platform_name in {"QQBOT", "WEIXIN"}
+
+
+async def _humanpulse_send_bubbles(text, *, send_one, scope):
+    if not _humanpulse_should_bubble(scope):
+        return await send_one(text)
+    try:
+        from gateway.platforms.cron_bubble_bridge import send_cron_reply
+    except Exception:
+        return await send_one(text)
+    return await send_cron_reply(text, send_one=send_one)
+'''.replace("{marker}", SCHEDULER_PATCH_MARKER)
+
 
 def _resolve_site_packages() -> Path:
     # Prefer the hermes-agent venv site-packages, fall back to sys.path.
@@ -270,6 +334,127 @@ def _apply_run_patch(site: Path, dry_run: bool) -> None:
         print(f"       backup: {backup}")
 
 
+def _find_call_end(text: str, opening: int) -> int | None:
+    depth = 0
+    quote = ""
+    escaped = False
+    for index in range(opening, len(text)):
+        char = text[index]
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = ""
+            continue
+        if char in {"'", '"'}:
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def _wrap_scheduler_delivery_call(text: str, pattern: str, start: int = 0) -> tuple[str, int]:
+    match = re.search(pattern + r"\s*\(", text[start:])
+    if match is None:
+        return text, 0
+    receiver_start = start + match.start()
+    opening = start + match.end() - 1
+    closing = _find_call_end(text, opening)
+    if closing is None:
+        return text, 0
+    call = text[receiver_start : closing + 1]
+    if "text_to_send" not in call:
+        return text, 0
+    bubble_call = re.sub(
+        r"\btext\s*=\s*text_to_send",
+        "text=_hp_bubble",
+        call,
+        count=1,
+    )
+    if bubble_call == call:
+        bubble_call = bubble_call.replace("text_to_send", "_hp_bubble", 1)
+    line_start = text.rfind("\n", 0, receiver_start) + 1
+    await_start = text.rfind("await ", line_start, receiver_start + 1)
+    if await_start < line_start:
+        return text, 0
+    indent = re.match(r"[ \t]*", text[line_start:]).group(0)
+    body_indent = indent + "    "
+    replacement = (
+        "await _humanpulse_send_bubbles(\n"
+        f"{body_indent}text_to_send,\n"
+        f"{body_indent}send_one=lambda _hp_bubble: {bubble_call},\n"
+        f"{body_indent}scope=locals(),\n"
+        f"{indent})"
+    )
+    return text[:await_start] + replacement + text[closing + 1 :], 1
+
+
+def _scheduler_path(site: Path) -> Path | None:
+    for relative in SCHEDULER_RELATIVE_PATHS:
+        target = site / relative
+        if target.exists():
+            return target
+    return None
+
+
+def _apply_scheduler_patch(site: Path, dry_run: bool) -> None:
+    """Route both Hermes cron delivery paths through independent bubbles."""
+
+    target = _scheduler_path(site)
+    if target is None:
+        print(f"[warn] scheduler.py not found under: {site}")
+        return
+    text = target.read_text(encoding="utf-8")
+    if SCHEDULER_PATCH_MARKER in text:
+        print(f"[skip] scheduler.py already patched ({target})")
+        return
+
+    patched = text
+    patched, live_count = _wrap_scheduler_delivery_call(
+        patched,
+        r"router\.\s*_deliver_to_platform",
+    )
+    patched, standalone_count = _wrap_scheduler_delivery_call(
+        patched,
+        r"(?:[\w.]+\.)?_send_to_platform",
+    )
+    if not live_count and not standalone_count:
+        print(f"[fail] scheduler.py delivery anchors not found ({target})")
+        print("       Hermes version may differ; patch the live and standalone sends manually.")
+        return
+    print(
+        f"[{'dry-run' if dry_run else 'patch'}] scheduler.py bubble delivery "
+        f"(live={live_count}, standalone={standalone_count}) ({target})"
+    )
+    if not dry_run:
+        backup = target.with_suffix(".py.humanpulse.bak")
+        future = re.search(
+            r"^from __future__ import[^\n]*\n",
+            patched,
+            flags=re.MULTILINE,
+        )
+        if future is None:
+            with_helper = SCHEDULER_HELPER + patched
+        else:
+            with_helper = (
+                patched[: future.end()]
+                + SCHEDULER_HELPER
+                + patched[future.end() :]
+            )
+        target.write_text(
+            with_helper,
+            encoding="utf-8",
+        )
+        backup.write_text(text, encoding="utf-8")
+        print(f"       backup: {backup}")
+
+
 def _install_cron_scripts(dry_run: bool) -> None:
     destination = Path.home() / ".hermes" / "scripts"
     for name in ("humanpulse_proactive.py", "humanpulse_followup.py"):
@@ -359,6 +544,7 @@ def main() -> int:
         site / "gateway" / "platforms" / "cron_bubble_bridge.py",
         args.dry_run,
     )
+    _apply_scheduler_patch(site, args.dry_run)
     _apply_run_patch(site, args.dry_run)
     _install_cron_scripts(args.dry_run)
     _enable_cron_session_mirroring(dry_run=args.dry_run)

@@ -1,3 +1,4 @@
+import ast
 import asyncio
 import json
 import unittest
@@ -29,8 +30,10 @@ from skills.companion_agent.adapters.hermes.patch_gateway import (
     BUBBLE_BRIDGE_SOURCE,
     RUN_ANCHOR_NEW,
     RUN_PATCH_MARKER,
+    SCHEDULER_PATCH_MARKER,
     _apply_base_patch,
     _apply_run_patch,
+    _apply_scheduler_patch,
     _copy_bridge,
     _enable_cron_session_mirroring,
 )
@@ -335,6 +338,32 @@ class CompanionSkillTests(unittest.TestCase):
             self.assertEqual(humanpulse_dest.read_bytes(), BRIDGE_SOURCE.read_bytes())
             self.assertIn(BASE_PATCH_MARKER, patched)
             self.assertIn(BASE_SEND_ANCHOR_NEW, patched)
+
+    def test_scheduler_patch_covers_live_and_standalone_delivery_paths(self):
+        with TemporaryDirectory() as directory:
+            scheduler = Path(directory) / "gateway" / "cron" / "scheduler.py"
+            scheduler.parent.mkdir(parents=True)
+            scheduler.write_text(
+                "async def deliver(job, router, platform, text_to_send, self):\n"
+                "    result = await router._deliver_to_platform(\n"
+                "        platform=platform,\n"
+                "        text=text_to_send,\n"
+                "    )\n"
+                "    await self._send_to_platform(\n"
+                "        platform,\n"
+                "        text_to_send,\n"
+                "    )\n",
+                encoding="utf-8",
+            )
+            _apply_scheduler_patch(Path(directory), dry_run=False)
+            patched = scheduler.read_text(encoding="utf-8")
+            ast.parse(patched, filename=str(scheduler))
+            self.assertIn(SCHEDULER_PATCH_MARKER, patched)
+            self.assertEqual(patched.count("await _humanpulse_send_bubbles("), 2)
+            self.assertTrue(scheduler.with_suffix(".py.humanpulse.bak").exists())
+            before = patched
+            _apply_scheduler_patch(Path(directory), dry_run=False)
+            self.assertEqual(scheduler.read_text(encoding="utf-8"), before)
 
     def test_cron_response_extract_uses_standalone_last_header(self):
         report = 'The skill says "## Response" inline.\n## Response\n真实追问内容'

@@ -19,10 +19,12 @@ The idempotent patcher:
 2. Patches `gateway/platforms/base.py` so QQ and WeChat send each bubble with
    a separate transport call and stop when a new user message interrupts.
 3. Copies `humanpulse_bridge.py` into `gateway/platforms/`.
-4. Patches `gateway/run.py` to inject time context and proactive reply context,
+4. Patches Hermes' cron scheduler so both the live-adapter and standalone
+   delivery paths route HumanPulse jobs through independent bubbles.
+5. Patches `gateway/run.py` to inject time context and proactive reply context,
    while retaining bounded recent history for later proactive generation
    without persisting hidden context into the transcript.
-5. Copies `humanpulse_proactive.py` and `humanpulse_followup.py` into
+6. Copies `humanpulse_proactive.py` and `humanpulse_followup.py` into
    `~/.hermes/scripts/` and enables session mirroring only for the two
    HumanPulse jobs in `~/.hermes/cron/jobs.json`.
 
