@@ -403,8 +403,28 @@ def _scheduler_path(site: Path) -> Path | None:
     return None
 
 
+# Marker that identifies the manually-applied HumanPulse cron delivery wiring
+# in Hermes >= 0.18.2 (installed by hand on 2026-08-09 to fix the duplicate
+# delivery).  When either this or the script's own marker is present, the
+# scheduler already routes humanpulse* jobs through independent bubbles on
+# BOTH the live-adapter and standalone paths — no patch needed.
+SCHEDULER_NATIVE_MARKERS = (
+    "_HUMANPULSE_BUBBLE_SENDER",
+    "is_humanpulse_job",
+    "_live_bubble_send",
+)
+
+
 def _apply_scheduler_patch(site: Path, dry_run: bool) -> None:
-    """Route both Hermes cron delivery paths through independent bubbles."""
+    """Route both Hermes cron delivery paths through independent bubbles.
+
+    Hermes 0.18.2 ships (or already has from a previous manual fix) the
+    HumanPulse bubble-delivery wiring natively inside ``cron/scheduler.py``:
+    ``_HUMANPULSE_BUBBLE_SENDER`` is loaded lazily and both the live-adapter
+    path (``router._deliver_to_platform`` via ``_live_bubble_send``) and the
+    standalone path route ``humanpulse*`` jobs through it.  Detect that
+    presence and skip; only patch when the wiring is genuinely missing.
+    """
 
     target = _scheduler_path(site)
     if target is None:
@@ -413,6 +433,12 @@ def _apply_scheduler_patch(site: Path, dry_run: bool) -> None:
     text = target.read_text(encoding="utf-8")
     if SCHEDULER_PATCH_MARKER in text:
         print(f"[skip] scheduler.py already patched ({target})")
+        return
+    if any(marker in text for marker in SCHEDULER_NATIVE_MARKERS):
+        print(
+            f"[skip] scheduler.py already has HumanPulse cron bubble delivery "
+            f"(native/previous fix present) ({target})"
+        )
         return
 
     patched = text

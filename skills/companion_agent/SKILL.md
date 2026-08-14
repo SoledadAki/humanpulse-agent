@@ -1,14 +1,14 @@
 ---
 name: companion-agent
-description: "Human-like conversation behavior for roleplay and companion agents: time-aware continuity, natural pacing, segmented replies, and safe proactive conversation."
+description: "Human-like conversation behavior for roleplay and companion agents: time-aware continuity, natural pacing, segmented replies, and safe proactive conversation. Hermes-only adapter (QQ/WeChat bubbles + cron)."
 ---
 
 # Companion Agent — Human-like Interaction
 
 Use this skill when an agent is used for roleplay, companion chat, or any
 conversation that should have a believable human-like rhythm instead of a
-request/response-bot feel. The host application remains responsible for
-message delivery, persistence, scheduling, permissions, and stopping a task.
+request/response-bot feel. The host (Hermes) remains responsible for message
+delivery, persistence, scheduling, permissions, and stopping a task.
 
 ## Inputs
 
@@ -145,6 +145,8 @@ the skill.
 
 The runtime in `runtime.py` is dependency-free and can be copied into a plugin.
 `schema/proactive-response.schema.json` defines the model-facing JSON shape.
+This repository is Hermes-only: see `adapters/hermes/README.md` for install and
+wiring.
 
 Runtime hosts should expose these six operations:
 
@@ -166,6 +168,30 @@ Send split bubbles through separate transport calls and stop before the next
 bubble if a new user message arrives.
 
 For Hermes, read `adapters/hermes/README.md` and
-`references/hermes-gateway-humanpulse-wiring.md`. For AstrBot, read
-`adapters/astrbot/README.md`. Installing this skill without host wiring does
-not create schedulers or change the transport.
+`references/hermes-gateway-humanpulse-wiring.md`. Known failure modes and the
+exact fixes live in `references/hermes-pitfalls.md` — read it before touching
+the gateway wiring or debugging silent proactive failures. Installing this
+skill without host wiring does not create schedulers or change the transport.
+
+## Hermes wiring (this machine)
+
+Hermes receives the complete adapter: gateway hidden-context injection, QQ/
+WeChat independent bubble delivery, proactive cron, and follow-up cron.
+Installing only `SKILL.md` changes model guidance but does NOT activate the
+runtime. Run the one-shot installer:
+
+```bash
+python3 adapters/hermes/install.py
+```
+
+The installer copies the skill into `~/.hermes/skills/companion-agent/`,
+applies the gateway patch (idempotent, `.bak` backups), installs the cron
+scripts, creates the two `humanpulse-*` cron jobs (skips existing), enables
+`attach_to_session` on them, clears the `HERMES_HUMANPULSE_CONTEXT` /
+`HERMES_BUBBLE_DELIVERY` disable switches from `.env`, and runs the
+verification suite. After `hermes update` re-run it — pip reinstalls wipe
+site-packages edits.
+
+Full source-level details: `references/hermes-gateway-humanpulse-wiring.md`,
+`references/hermes-gateway-bubble-wiring.md`, cron wiring
+`references/hermes-cron-wiring.md`.

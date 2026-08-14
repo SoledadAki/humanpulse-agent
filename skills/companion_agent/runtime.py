@@ -227,7 +227,10 @@ def poll_followup(
         return {"status": "claimed_elsewhere", "state": updated}
     stage = int(updated.get("stage_index", 0)) + 1
     plan = updated.get("stages") or []
-    if stage >= len(plan):
+    # stage is 1-based ("the Nth stage"), plan is 0-based.  stage == len(plan)
+    # is the LAST stage (plan[stage-1] is valid); stage > len(plan) means
+    # everything has been sent.
+    if stage > len(plan):
         updated.update(status="waiting_for_user", next_stage_at="", stages=[])
         return {"status": "finished", "state": updated}
     claim_id = f"{updated.get('cycle_id') or 'cycle'}:{stage}"
@@ -240,7 +243,7 @@ def poll_followup(
         "state": updated,
         "claim_id": claim_id,
         "stage": stage,
-        "text": str(plan[stage]),
+        "text": str(plan[stage - 1]),
     }
 
 
@@ -269,7 +272,9 @@ def commit_followup(
     updated["claim_id"] = ""
     updated["claim_started_at"] = ""
     plan = updated.get("stages") or []
-    if stage + 1 < len(plan):
+    # stage is 1-based (the Nth stage just delivered).  Remaining stages =
+    # len(plan) - stage; when stage < len(plan) there is still a next one.
+    if stage < len(plan):
         updated["next_stage_at"] = _iso(
             current
             + timedelta(
@@ -434,7 +439,28 @@ def decide_proactive(
     if count_today >= max(0, policy.daily_limit):
         return {"action": "skip", "reason_code": "DAILY_LIMIT"}
 
+    # A follow-up cycle is still waiting for the user — do NOT open a brand
+    # new proactive round on top of it.  Without this gate the proactive
+    # cron (every 45m) would fire again after the 1+2 follow-up cycle
+    # finished (observed 2026-08-08: 14:43 ping + 2 follow-ups, then a
+    # second proactive at 16:14 = 4 messages when the user expected 3).
+    followup = state.get("followup") or {}
+    if followup.get("status") == "active":
+        return {"action": "skip", "reason_code": "FOLLOWUP_ACTIVE"}
+
     last_user = _localize(state.get("last_user_at"), zone)
+    # The user has not spoken since our last proactive message (and its
+    # follow-ups): another proactive round would repeat the same nagging
+    # instead of continuing the conversation.  Wait until the user replies
+    # (last_user_at >= last_proactive_at) before starting a new round.
+    last_proactive = _localize(state.get("last_proactive_at"), zone)
+    if (
+        last_user is not None
+        and last_proactive is not None
+        and last_user < last_proactive
+    ):
+        return {"action": "skip", "reason_code": "USER_NOT_REPLIED"}
+
     if last_user is not None:
         idle = (current - last_user).total_seconds() / 60
         if idle < max(0, policy.min_idle_minutes):

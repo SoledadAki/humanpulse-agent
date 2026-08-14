@@ -1,47 +1,49 @@
 # Hermes adapter
 
-Hermes is the reference runtime host for HumanPulse Agent. A complete install
+Hermes is the only supported runtime host for this skill. A complete install
 has four parts: the skill files, gateway context injection, independent bubble
 delivery, and two cron jobs. Copying `SKILL.md` alone only changes model
 guidance and does not activate the runtime.
 
-## Install or re-apply
+## One-shot install / re-apply
 
-Run this from the installed skill directory with the Hermes Python environment:
-
-```bash
-python3 adapters/hermes/patch_gateway.py
-```
-
-The idempotent patcher:
-
-1. Copies `base_bubble_bridge.py` into `gateway/platforms/`.
-2. Patches `gateway/platforms/base.py` so QQ and WeChat send each bubble with
-   a separate transport call and stop when a new user message interrupts.
-3. Copies `humanpulse_bridge.py` into `gateway/platforms/`.
-4. Patches Hermes' cron scheduler so both the live-adapter and standalone
-   delivery paths route HumanPulse jobs through independent bubbles.
-5. Patches `gateway/run.py` to inject time context and proactive reply context,
-   while retaining bounded recent history for later proactive generation
-   without persisting hidden context into the transcript.
-6. Copies `humanpulse_proactive.py` and `humanpulse_followup.py` into
-   `~/.hermes/scripts/` and enables session mirroring only for the two
-   HumanPulse jobs in `~/.hermes/cron/jobs.json`.
-
-Existing files receive `.humanpulse.bak` backups. Use `--dry-run` to inspect
-changes or `--site-packages PATH` when Hermes is installed in a nonstandard
-location.
-
-Create or update the two jobs from
-[`../../references/hermes-cron-wiring.md`](../../references/hermes-cron-wiring.md),
-restart the gateway, then run:
+Run from this skill directory with the Hermes Python environment:
 
 ```bash
-python3 scripts/verify_humanpulse.py
+python3 adapters/hermes/install.py
 ```
 
-Run the patcher again after `hermes update`, because pip reinstalling Hermes
-replaces edits under `site-packages`.
+The installer is idempotent and does all of:
+
+1. Copies this skill into `~/.hermes/skills/companion-agent/` (backing up an
+   existing dir once as `companion-agent.bak.HUMANPULSE`).
+2. Runs `patch_gateway.py`, which:
+   - copies `base_bubble_bridge.py`, `humanpulse_bridge.py`, and
+     `cron_bubble_bridge.py` into `<site-packages>/gateway/platforms/`;
+   - patches `gateway/platforms/base.py` so QQ and WeChat send each bubble
+     with a separate transport call and stop when a new user message
+     interrupts (skips when already patched / Hermes has it natively);
+   - patches `gateway/run.py` to inject hidden time context and proactive
+     reply context on every user turn, retaining bounded recent history
+     without persisting hidden context into the transcript;
+   - treats Hermes >= 0.18.2 cron scheduler as already-wired when
+     `_HUMANPULSE_BUBBLE_SENDER` is present (both live-adapter and standalone
+     cron delivery paths route `humanpulse*` jobs through independent
+     bubbles — a manual fix applied 2026-08-09 survives as native presence);
+   - copies the cron scripts into `~/.hermes/scripts/` and enables session
+     mirroring only for the two HumanPulse jobs in `~/.hermes/cron/jobs.json`.
+3. Creates the two cron jobs (`humanpulse-proactive`, `humanpulse-followup`)
+   if they do not already exist (see `../../references/hermes-cron-wiring.md`).
+4. Removes the `HERMES_HUMANPULSE_CONTEXT` / `HERMES_BUBBLE_DELIVERY`
+   disable switches from `~/.hermes/.env` if a previous disable left them.
+5. Runs `scripts/verify_humanpulse.py` and reports every failure.
+
+Existing gateway files receive `.humanpulse.bak` backups. Use `--dry-run` to
+inspect changes, or `--site-packages PATH` on the patcher when Hermes is
+installed in a nonstandard location.
+
+After `hermes update` (pip reinstall), run `install.py` again — Hermes
+reinstalling replaces edits under `site-packages`.
 
 ## Inbound message order
 
@@ -107,11 +109,19 @@ persona's voice. The default cycle chooses a variable 0–2 follow-up count and
 slightly jittered intervals around 26–36, 8–13, and 4–7 minutes.
 
 Cron delivery is a separate Hermes path from normal gateway replies. The
-installed scheduler must route HumanPulse job results through
-`gateway.platforms.cron_bubble_bridge.send_cron_reply()`, which calls the real
-platform sender once per short bubble. The patcher copies this helper; Hermes
-versions that already contain the HumanPulse scheduler hook should simply
-reload it after an update.
+scheduler routes HumanPulse job results through
+`gateway.platforms.cron_bubble_bridge.send_cron_reply()` (or the native
+`_HUMANPULSE_BUBBLE_SENDER` path in >= 0.18.2), which calls the real platform
+sender once per short bubble.
+
+## Troubleshooting
+
+Read `../../references/hermes-pitfalls.md` first — it documents every failure
+mode hit on this machine (duplicate delivery, cross-day rollover deadlock,
+follow-up state machine off-by-ones, quiet-hours gating, cron dual-path
+bubble bypass) with the exact fixes and regression assertions.
 
 Full source-level details are in
-[`../../references/hermes-gateway-humanpulse-wiring.md`](../../references/hermes-gateway-humanpulse-wiring.md).
+[`../../references/hermes-gateway-humanpulse-wiring.md`](../../references/hermes-gateway-humanpulse-wiring.md)
+and
+[`../../references/hermes-gateway-bubble-wiring.md`](../../references/hermes-gateway-bubble-wiring.md).

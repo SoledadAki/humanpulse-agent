@@ -7,8 +7,8 @@ Empty stdout -> Hermes cron skips the AI call entirely (zero tokens).
 So this script prints:
   * nothing              -> decide_proactive() says skip (user recently
                             active / quiet hours / daily limit / cooldown)
-  * a context prompt     -> a proactive message is eligible; the cron agent
-                            uses time and conversation context to craft a natural opening
+  * a status block       -> a proactive message is eligible; the cron agent
+                            reads the status and crafts a natural opening line
 
 After the agent replies, the follow-up cron job (humanpulse_followup.py)
 detects the delivered output, records it via ``record_proactive_sent()``,

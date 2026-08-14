@@ -2,7 +2,7 @@
 
 The host owns where the state file lives.  By default it uses
 ``~/.hermes/humanpulse/state.json`` (Hermes home), but any host can point
-``HUMANPULSE_STATE_FILE`` at its own location (e.g. astrbot plugin dir).
+``HUMANPULSE_STATE_FILE`` at its own location (e.g. a Hermes profile dir).
 
 State shape (all timestamps ISO-8601 UTC):
 

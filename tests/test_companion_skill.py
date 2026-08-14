@@ -196,12 +196,29 @@ class CompanionSkillTests(unittest.TestCase):
 
         claimed = poll_followup(state, now=due, policy=policy)
         self.assertEqual(claimed["status"], "claimed")
-        self.assertEqual(claimed["text"], "还在吗")
+        # plan is 0-based, stage is 1-based: the FIRST claim must return the
+        # FIRST stage (plan[stage-1]).  The old off-by-one returned the second
+        # stage here, skipping the first and losing the last.
+        self.assertEqual(claimed["text"], "第一句")
         committed = commit_followup(
             claimed["state"], claimed["claim_id"], delivered=True, now=due, policy=policy
         )
         self.assertEqual(committed["status"], "committed")
         self.assertEqual(committed["state"]["stage_index"], 1)
+        # Second stage: after committing stage 1, the next claim returns 还在吗.
+        due2 = datetime.fromisoformat(committed["state"]["next_stage_at"])
+        claimed2 = poll_followup(committed["state"], now=due2, policy=policy)
+        self.assertEqual(claimed2["status"], "claimed")
+        self.assertEqual(claimed2["text"], "还在吗")
+        committed2 = commit_followup(
+            claimed2["state"], claimed2["claim_id"], delivered=True, now=due2, policy=policy
+        )
+        self.assertEqual(committed2["status"], "committed")
+        # Third stage: still claimable (stage < len(plan) — old code dropped it).
+        due3 = datetime.fromisoformat(committed2["state"]["next_stage_at"])
+        claimed3 = poll_followup(committed2["state"], now=due3, policy=policy)
+        self.assertEqual(claimed3["status"], "claimed")
+        self.assertEqual(claimed3["text"], "我先去忙啦")
 
     def test_followup_cycle_missed_stage_is_not_caught_up(self):
         policy = FollowupPolicy(intervals_minutes=((1, 1),), grace_minutes=5)

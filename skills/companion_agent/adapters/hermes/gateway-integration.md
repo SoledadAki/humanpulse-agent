@@ -5,31 +5,29 @@ model prompt. If Hermes returns one string containing several sentences, a
 single call to `self.send(text)` will always produce one QQ/WeChat message,
 even when the string contains newlines.
 
-The host should split immediately before delivery:
+**Current wiring (Hermes-only repo):** you do NOT edit Hermes by hand. Run
+`adapters/hermes/install.py` — it copies the bridge modules into
+site-packages, patches `gateway/run.py` (hidden time context + proactive
+reply note) and `gateway/platforms/base.py` (bubble delivery), and installs
+the cron wiring. The documents below describe the integration points for
+reference:
 
-```python
-from skills.companion_agent.adapters.hermes.gateway_bubble_bridge import (
-    send_with_fallback,
-)
+- `references/hermes-gateway-humanpulse-wiring.md` — inbound hidden-context
+  injection + six-function host contract
+- `references/hermes-gateway-bubble-wiring.md` — outbound bubble delivery
+- `references/hermes-pitfalls.md` — 实战踩坑记录（必读）
 
+## The outbound send chain (where a reply becomes a platform message)
 
-async def _send_with_bubbles(self, text: str, interrupt_event):
-    return await send_with_fallback(
-        text,
-        send_one=self._send_with_retry,
-        interrupt_event=interrupt_event,
-    )
 ```
-
-Then the normal background message path should select this method only for QQ
-and WeChat, while Telegram, Discord, and other platforms keep the original
-single-send path:
-
-```python
-if self.platform_name in {"QQBOT", "WEIXIN"}:
-    await self._send_with_bubbles(text, interrupt_event)
-else:
-    await self._send_with_retry(text)
+BasePlatformAdapter._process_message_background()   gateway/platforms/base.py
+  └─ text_content send site
+       └─ _send_with_bubbles()                      patched in by install.py
+            └─ send_human_reply()                   companion-agent skill
+                 └─ send_one = _send_with_retry()   base.py (retry wrapper)
+                      └─ self.send()                platform adapter
+                           ├─ QQ:    qqbot/adapter.py::send()
+                           └─ WeChat: weixin.py::send()
 ```
 
 `send_one` must call the existing platform-aware retry function. Do not call
@@ -42,6 +40,6 @@ callback. The bridge provides:
 - a single-message fallback if the skill is unavailable;
 - no changes to credentials, configuration, or unrelated platforms.
 
-The exact Hermes file and method names may change between releases. Keep this
-bridge as the stable integration contract and adapt only the small hook in
-`BasePlatformAdapter._process_message_background()`.
+The exact Hermes file and method names may change between releases. Keep the
+bridge as the stable integration contract and re-run `install.py` after any
+`hermes update`.

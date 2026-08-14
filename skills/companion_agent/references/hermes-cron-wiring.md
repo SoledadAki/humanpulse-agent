@@ -1,7 +1,8 @@
 # HumanPulse Hermes cron wiring — exact commands
 
 Recreate the two cron jobs that drive proactive messaging and follow-up
-cycles. Both were created 2026-08-07 on this machine and verified working.
+cycles. Created 2026-08-07 on this machine and verified working; install.py
+recreates them automatically (skip-if-exists).
 
 ## Prerequisites
 
@@ -13,6 +14,16 @@ cycles. Both were created 2026-08-07 on this machine and verified working.
 - State file: `~/.hermes/humanpulse/state.json` (override
   `HUMANPULSE_STATE_FILE`).
 
+## One-shot: run the installer
+
+```bash
+python3 adapters/hermes/install.py
+```
+
+The installer copies the skill, applies the gateway patch, creates both jobs
+below (skips existing), clears the `.env` disable switches, and verifies.
+This is the supported path. Manual commands below are for reference / repair.
+
 ## Job 1: proactive (agent mode, 45 min)
 
 The script's stdout is injected into the agent prompt. Empty stdout → Hermes
@@ -21,8 +32,9 @@ current period, recent conversation context, recent proactive messages, and a
 selected opening angle, then crafts a natural opening line.
 
 ```bash
-hermes cron add --name humanpulse-proactive --schedule "every 45m" \
+hermes cron create --name humanpulse-proactive \
   --script humanpulse_proactive.py --skill companion-agent --deliver origin \
+  "every 45m" \
   "你是一个带 HumanPulse 时间感/主动聊天能力的陪伴角色（琴音）。
 
 上方 ## Script Output 是 HumanPulse 主动消息判定结果：
@@ -46,21 +58,27 @@ records the previous delivered output and scans the proactive job output for a
 newly delivered message.
 
 ```bash
-hermes cron add --name humanpulse-followup --schedule "every 5m" \
+hermes cron create --name humanpulse-followup \
   --script humanpulse_followup.py --skill companion-agent --deliver origin \
+  "every 5m" \
   "根据上方 HumanPulse 追问上下文生成一条自然的后续消息。遵循当前人设，不默认撒娇；不要提脚本、定时器或沉默时长。没有自然内容时输出 [SILENT]。"
 ```
 
-After both jobs exist, run `python3 adapters/hermes/patch_gateway.py`. It sets
-`attach_to_session=true` only on `humanpulse-proactive` and
+## After both jobs exist
+
+The gateway patcher (`adapters/hermes/patch_gateway.py`, run by install.py)
+sets `attach_to_session=true` only on `humanpulse-proactive` and
 `humanpulse-followup`, so their delivered messages are mirrored into the real
 QQ/WeChat session history. Other cron jobs are untouched.
+
+Note: `hermes cron edit` CLI does not expose `attach_to_session` — the patcher
+edits `~/.hermes/cron/jobs.json` directly.
 
 ## Verification
 
 ```bash
 cd ~/.hermes/skills/companion-agent
-python3 scripts/verify_humanpulse.py   # 20/20 PASS
+python3 scripts/verify_humanpulse.py   # 33+ assertions, all PASS
 ```
 
 ## State shape (state.py)
