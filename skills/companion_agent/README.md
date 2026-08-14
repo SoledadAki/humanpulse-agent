@@ -63,6 +63,6 @@ python3 scripts/verify_bubble_delivery.py
 
 ## 发布定位
 
-仓库名：`humanpulse-agent`（本仓库）的 Hermes 专属版。核心卖点：
+仓库名：`hermes-companion`（本仓库）。核心卖点：
 框架无关、无依赖、时间感、真实多气泡发送、分阶段主动对话、可取消发送
 和主动行为安全边界。

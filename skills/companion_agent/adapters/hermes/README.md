@@ -78,8 +78,8 @@ cannot load, all platforms safely fall back to Hermes' original behavior.
 ## Six-function contract
 
 The gateway bridge dynamically loads `runtime.py` and `state.py` from
-`companion-agent`, `companion_agent`, or `humanpulse-agent` under the Hermes
-skills directory. It exposes:
+`companion-agent`, `companion_agent`, or `humanpulse-agent` (legacy name)
+under the Hermes skills directory. It exposes:
 
 ```text
 update_user_activity

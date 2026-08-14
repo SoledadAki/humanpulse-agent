@@ -1,4 +1,4 @@
-"""Bridge from the Hermes gateway to the humanpulse-agent (companion-agent)
+"""Bridge from the Hermes gateway to the hermes-companion (companion-agent)
 runtime — time awareness, proactive messaging, and follow-up cycles.
 
 Mirrors the pattern of ``base_bubble_bridge.py``: the humanpulse skill lives
