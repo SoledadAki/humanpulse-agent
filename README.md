@@ -4,7 +4,7 @@
 > continuity, natural reply pacing, real QQ/WeChat bubbles, safe proactive
 > conversation, and staged no-reply follow-ups.
 >
-> 仓库：**hermes-companion** · 已精简为 **Hermes 唯一适配**：不再适配
+> 仓库：**hermes-humanlike** · 已精简为 **Hermes 唯一适配**：不再适配
 > AstrBot / Codex / Claude Code。安装是一键的，不需要手工魔改 Hermes 代码。
 
 This layer packages the behavior that makes an agent feel present in an
