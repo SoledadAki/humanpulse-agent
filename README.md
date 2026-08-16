@@ -1,11 +1,12 @@
 # Companion Agent — Hermes 专属版
 
-> Human-like interaction layer for companion chat on Hermes: time-aware
-> continuity, natural reply pacing, real QQ/WeChat bubbles, safe proactive
-> conversation, and staged no-reply follow-ups.
+> 让 Hermes 像人一样自然聊天的拟人感行为层：时间感知的连续对话、自然的
+> 回复节奏、QQ/微信真实多气泡发送、安全主动发话，以及用户未回复时的
+> 分阶段追问。
 >
-> 仓库：**hermes-humanlike** · 已精简为 **Hermes 唯一适配**：不再适配
-> AstrBot / Codex / Claude Code。安装是一键的，不需要手工魔改 Hermes 代码。
+> Human-like interaction layer for Hermes: time-aware continuity, natural
+> reply pacing, real QQ/WeChat bubbles, safe proactive conversation, and
+> staged no-reply follow-ups.
 
 This layer packages the behavior that makes an agent feel present in an
 ongoing conversation: awareness of elapsed time, natural reply length and
@@ -120,7 +121,7 @@ The repository has no third-party runtime dependency.
 
 ## 中文简介
 
-Companion Agent 是一个面向 Hermes 的 AI 拟人感行为层。它把时间感、常人化
-字数和标点、真实多气泡发送、自然主动发话、主动消息后的接话提示，以及用户
-未回复时的分阶段追问整理成可移植的宿主契约。Hermes 适配器覆盖完整链路，
-一键安装即用；不再适配其他 agent。
+Companion Agent 是一个面向 Hermes 的 AI 拟人感行为层。它让对话具备时间
+感知的连续性，回复长度和标点更接近真人，支持 QQ/微信真实多气泡发送、自然
+主动发话，以及用户未回复时的分阶段追问。核心运行时只依赖 Python 标准库，
+安装一次即可覆盖完整链路。
